@@ -136,8 +136,9 @@ def run_summary(data, start_time):
             with open("setting.json", "r", encoding="utf-8") as f:
                 summary.update(json.load(f))
 
-        env = Environment(loader=FileSystemLoader(os.getcwd()), trim_blocks=True)
-        template = env.get_template('report_template.html')
+        template_dir = os.path.join(os.getcwd(), "source")
+        env = Environment(loader=FileSystemLoader(template_dir), trim_blocks=True)
+        template = env.get_template('template')
         html = template.render(data=summary)
 
         report_path = os.path.join(get_report_dir(), "result.html")
