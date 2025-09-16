@@ -42,7 +42,7 @@ def run(cases):
         
         # 假设只有一个设备用于演示
         # 在实际多设备场景中, 你需要修改此处的设备列表逻辑
-        devices = ["web_device_1","web_device_2"] 
+        devices = ["web_device_1"] 
 
         for case in cases:
             case_results = {'script': case, 'tests': {}}
@@ -67,12 +67,14 @@ def run_on_devices(case, devices, log_base_dir):
     """
     在指定设备上运行单个测试用例.
     """
+    case_name = os.path.splitext(case)[0]
+    case_path = os.path.join(os.getcwd(), "case", case, f"{case_name}.py")
     tasks = []
     for dev in devices:
         log_dir = get_log_dir(case, dev, log_base_dir)
         print(f"执行脚本 '{case}' 在设备 '{dev}' 上, 日志路径: {log_dir}")
         
-        cmd = ["airtest", "run", os.path.join(os.getcwd(), "case", case), "--log", log_dir, "--recording"]
+        cmd = ["airtest", "run", case_path, "--log", log_dir, "--recording"]
         try:
             # 使用 shell=True (Windows) or False (Linux/MacOS)
             is_windows = os.name == 'nt'
@@ -89,14 +91,15 @@ def run_one_report(case, dev, log_base_dir):
     """
     为单次运行生成Airtest报告.
     """
+    log_dir = get_log_dir(case, dev, log_base_dir)
+    log_txt = os.path.join(log_dir, 'log.txt')
+    case_name = os.path.splitext(case)[0]
+    case_path = os.path.join(os.getcwd(), "case", case, f"{case_name}.py")
     try:
-        log_dir = get_log_dir(case, dev, log_base_dir)
-        log_txt = os.path.join(log_dir, 'log.txt')
-        
         if os.path.isfile(log_txt):
             report_path = os.path.join(log_dir, 'log.html')
             cmd = [
-                "airtest", "report", os.path.join(os.getcwd(), "case", case),
+                "airtest", "report", case_path,
                 "--log_root", log_dir,
                 "--outfile", report_path,
                 "--lang", "zh",
@@ -105,7 +108,7 @@ def run_one_report(case, dev, log_base_dir):
             is_windows = os.name == 'nt'
             subprocess.call(cmd, shell=is_windows, cwd=os.getcwd())
             
-            relative_path = os.path.join("log", case.replace(".air", ".log"), dev, 'log.html').replace('\\', '/')
+            relative_path = os.path.join("log", case_name + '.log', dev, 'log.html').replace('\\', '/')
             return {'status': 0, 'path': relative_path}
         else:
             print(f"报告生成失败: 未找到log.txt in {log_dir}")
@@ -168,14 +171,11 @@ def get_report_dir():
     return os.path.join(os.getcwd(), "result")
 
 def get_cases():
-    """
-    从 'case' 目录获取所有.air用例.
-    """
+    """ 从 'case' 文件夹获取所有测试用例。""" 
     case_dir = os.path.join(os.getcwd(), "case")
     if not os.path.isdir(case_dir):
-        print(f"错误: 'case' 目录 '{case_dir}' 不存在。")
         return []
-    return [name for name in os.listdir(case_dir) if name.endswith(".air")]
+    return sorted([name for name in os.listdir(case_dir)])
 
 if __name__ == '__main__':
     all_cases = get_cases()
