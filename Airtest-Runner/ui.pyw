@@ -1,22 +1,11 @@
-import os
-import traceback
-import subprocess
-import time
-import json
-import shutil
-import sys
-import webbrowser
-
-# ### NEW: 导入新功能所需的库 ###
+import os,time,json,sys,re,shutil,traceback,subprocess,webbrowser,psutil
 import serial.tools.list_ports
-import psutil
-
 from jinja2 import Environment, FileSystemLoader
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QLabel, QLineEdit, QTableWidget, QTableWidgetItem,
                              QHeaderView, QCheckBox, QFrame, QProgressBar, QDialog, QFileDialog,
-                             QStyledItemDelegate, QStyle, QComboBox)
-from PyQt6.QtGui import QIcon, QPixmap
+                             QStyledItemDelegate, QStyle, QComboBox, QGridLayout)
+from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer, QSize
 
 # =====================================================================================================================
@@ -33,12 +22,19 @@ class NoFocusDelegate(QStyledItemDelegate):
 # =====================================================================================================================
 def get_script_description(case_script):
     try:
-        readme_path = os.path.join(os.getcwd(), "case", case_script, "readme")
-        if os.path.exists(readme_path):
-            with open(readme_path, "r", encoding="utf-8") as f:
-                return f.readline().strip() or "暂无脚本描述"
+        script_name = os.path.splitext(case_script)[0]
+        script_path = os.path.join(os.getcwd(), "case", case_script, f"{script_name}.py")
+
+        if os.path.exists(script_path):
+            with open(script_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                # 使用正则表达式查找 __brief__ 的值
+                match = re.search(r'\s*__brief__\s*=\s*["\'](.*?)["\']', content)
+                if match:
+                    return match.group(1).strip()  # 返回匹配到的描述
     except Exception as e:
-        print(f"读取 {case_script} 的readme文件时出错: {e}")
+        print(f"读取 {case_script} 的 __brief__ 时出错: {e}")
+    
     return "暂无脚本描述"
 
 def get_report_dir():
@@ -54,12 +50,13 @@ def get_cases():
     case_dir = os.path.join(os.getcwd(), "case")
     if not os.path.isdir(case_dir):
         return []
-    return sorted([name for name in os.listdir(case_dir) if name.endswith(".air")])
+    return sorted([name for name in os.listdir(case_dir)])
 
 class RunnerThread(QThread):
     """
     RunnerThread is a QThread worker class designed to handle the test execution
-    process in the background, preventing the main GUI from freezing. Its primary responsibilities include:
+    process in the background, preventing the main GUI from freezing.
+    Its primary responsibilities include:
     - Managing the entire lifecycle of a test run, from setup to report generation.
     - Executing each selected 'airtest' script as a separate subprocess.
     - Monitoring and controlling these subprocesses, allowing for graceful termination.
@@ -107,7 +104,7 @@ class RunnerThread(QThread):
                 tasks = self.run_on_devices(case, ["web_device_1"], log_base_dir)
                 for task in tasks:
                     if not self.running: break
-                    
+ 
                     while task['process'].poll() is None:
                         if not self.running:
                             task['process'].terminate()
@@ -144,9 +141,11 @@ class RunnerThread(QThread):
 
     def run_on_devices(self, case, devices, log_base_dir):
         tasks = []
+        case_name = os.path.splitext(case)[0]
+        case_path = os.path.join(os.getcwd(), "case", case, f"{case_name}.py")
         for dev in devices:
             log_dir = get_log_dir(case, dev, log_base_dir)
-            cmd = ["airtest", "run", os.path.join(os.getcwd(), "case", case), "--log", log_dir, "--recording"]
+            cmd = ["airtest", "run", case_path, "--log", log_dir, "--recording"]
             try:
                 is_windows = os.name == 'nt'
                 process = subprocess.Popen(cmd, cwd=os.getcwd(), shell=is_windows,
@@ -161,7 +160,8 @@ class RunnerThread(QThread):
     def run_one_report(self, case, dev, log_base_dir):
         log_dir = get_log_dir(case, dev, log_base_dir)
         log_txt = os.path.join(log_dir, 'log.txt')
-        
+        case_name = os.path.splitext(case)[0]
+        case_path = os.path.join(os.getcwd(), "case", case, f"{case_name}.py")
         max_retries = 5
         retry_delay = 0.5
         for attempt in range(max_retries):
@@ -190,7 +190,7 @@ class RunnerThread(QThread):
         try:
             report_path = os.path.join(log_dir, 'log.html')
             cmd = [
-                "airtest", "report", os.path.join(os.getcwd(), "case", case),
+                "airtest", "report", case_path,
                 "--log_root", log_dir, "--outfile", report_path,
                 "--lang", "zh", "--plugin", "airtest_selenium.report"
             ]
@@ -199,7 +199,7 @@ class RunnerThread(QThread):
                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             report_process.communicate(timeout=60)
 
-            relative_path = os.path.join("log", case.replace(".air", ".log"), dev, 'log.html').replace('\\', '/')
+            relative_path = os.path.join("log", case_name+'.log', dev, 'log.html').replace('\\', '/')
             return {'status': 0, 'path': relative_path}
         except Exception:
             traceback.print_exc()
@@ -248,14 +248,13 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.main_window = parent
         self.setWindowTitle("设置")
-        self.setMinimumWidth(450)
+        self.setMinimumWidth(400)
         
-        # ### MODIFIED: 沿用主窗口更新后的样式 ###
         primary_color = "#4F46E5"
         primary_hover_color = "#4338CA"
         self.setStyleSheet(f"""
             QDialog, QLabel, QCheckBox {{ 
-                font-size: 14px; 
+                font-size: 14px;
                 font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
             }}
             QPushButton {{
@@ -278,7 +277,7 @@ class SettingsDialog(QDialog):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(15)
+        layout.setSpacing(5) # 减小间距，让提示更紧凑
         
         self.hide_params_checkbox = QCheckBox("隐藏主界面的参数设置面板")
         self.hide_params_checkbox.setChecked(not self.main_window.settings_card.isVisible())
@@ -297,18 +296,41 @@ class SettingsDialog(QDialog):
         config_layout.addWidget(browse_button)
         layout.addLayout(config_layout)
 
+        # 添加用于显示错误的标签
+        self.error_label = QLabel("")
+        # 修改样式：缩小字体
+        self.error_label.setStyleSheet("color: red; padding-left: 92px; font-size: 12px;")
+        self.error_label.setVisible(False) # 初始时隐藏
+        layout.addWidget(self.error_label)
+        
+        layout.addStretch() # 添加伸缩，避免控件分散
+
     def toggle_params_card(self, state):
         is_checked = (state == Qt.CheckState.Checked.value)
         self.main_window.model_info_card.setVisible(not is_checked)
         self.main_window.settings_card.setVisible(not is_checked)
 
-
     def browse_config_file(self):
+        # 新增：再次点击浏览时，立即隐藏上一次的错误提示
+        self.error_label.setVisible(False)
+
         file_path, _ = QFileDialog.getOpenFileName(self, "选择配置文件", "", "JSON Files (*.json)")
-        
-        if file_path:
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                json.load(f)  # 仅用于验证JSON格式
+            
+            # 验证成功
             self.main_window.set_settings_path(file_path)
             self.config_path_entry.setText(file_path)
+
+        except (json.JSONDecodeError, IOError):
+            # 验证失败，显示错误信息
+            self.error_label.setText("请选择有效的JSON文件")
+            self.error_label.setVisible(True)
+
 
 # =====================================================================================================================
 # 主 UI 界面
@@ -318,7 +340,6 @@ class App(QWidget):
         super().__init__()
         self.setWindowTitle("自动化自测工具")
         
-        # ### NEW: 为窗口设置一个默认图标 ###
         self.setWindowIcon(QIcon("./source/logo.png"))
         
         self.setGeometry(100, 100, 1000, 720)
@@ -334,23 +355,21 @@ class App(QWidget):
         self.load_settings()
 
     def setup_ui(self):
-        # ### MODIFIED: 现代化、更专业和和谐的色彩方案 ###
         primary_color = "#4ACBD6"
         primary_hover_color = "#43b6c0"
         stop_button_color = "#4F46E5"
         stop_button_hover_color = "#4338CA"
         dark_sidebar_color = "#2E2E2E"
         dark_sidebar_hover_color = "#3f3f3f"
-        background_color = "#F8F9FA" # 更明亮的背景色
+        background_color = "#F8F9FA" 
         card_bg_color = "#FFFFFF"
         border_color = "#DEE2E6"
-        text_color = "#212529" # 主文本颜色
-        secondary_text_color = "#6C757D" # 次要文本颜色
+        text_color = "#212529" 
+        secondary_text_color = "#6C757D"
         
-        # ### MODIFIED: 全面更新的样式表 ###
         self.setStyleSheet(f"""
             QWidget {{ 
-                color: {text_color}; 
+                color: {text_color};
                 font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
                 background-color: {background_color};
             }}
@@ -360,20 +379,20 @@ class App(QWidget):
                 border-radius: 8px;
             }}
             QLabel {{ 
-                font-size: 14px; 
+                font-size: 14px;
                 background-color: transparent; 
             }}
             QCheckBox {{ 
-                background-color: transparent; 
+                background-color: transparent;
             }}
             QLabel#titleLabel {{ 
-                font-size: 24px; 
+                font-size: 24px;
                 font-weight: 600; 
                 color: {text_color}; 
                 padding-bottom: 5px; 
             }}
             QLabel#cardTitle {{ 
-                font-size: 16px; 
+                font-size: 16px;
                 font-weight: 600; 
                 color: {text_color}; 
             }}
@@ -385,7 +404,7 @@ class App(QWidget):
                 font-size: 14px;
             }}
             QLineEdit:focus, QComboBox:focus {{ 
-                border-color: {primary_color}; 
+                border-color: {primary_color};
             }}
             QComboBox::drop-down {{
                 subcontrol-origin: padding;
@@ -410,14 +429,14 @@ class App(QWidget):
                 selection-color: {text_color};
             }}
             QTableWidget::item {{ 
-                padding: 12px 10px; 
+                padding: 12px 10px;
                 border-bottom: 1px solid #F1F3F5; 
             }}
             QTableWidget::item:selected {{ 
-                background-color: #E9EBF8; 
+                background-color: #E9EBF8;
             }}
             QTableWidget::item:focus {{ 
-                outline: none; 
+                outline: none;
             }}
             QHeaderView::section {{ 
                 background-color: #F8F9FA;
@@ -438,17 +457,17 @@ class App(QWidget):
                 min-height: 20px;
             }}
             QPushButton:hover {{ 
-                background-color: {primary_hover_color}; 
+                background-color: {primary_hover_color};
             }}
             QPushButton:disabled {{ 
-                background-color: #E9ECEF; 
+                background-color: #E9ECEF;
                 color: {secondary_text_color}; 
             }}
             QPushButton#stopButton {{ 
-                background-color: {stop_button_color}; 
+                background-color: {stop_button_color};
             }}
             QPushButton#stopButton:hover {{ 
-                background-color: {stop_button_hover_color}; 
+                background-color: {stop_button_hover_color};
             }}
             QFrame#leftPanel {{
                 background-color: {dark_sidebar_color};
@@ -485,21 +504,21 @@ class App(QWidget):
         main_layout.setSpacing(0)
 
         left_panel = QFrame(objectName="leftPanel")
-        left_panel.setFixedWidth(70)
+        left_panel.setFixedWidth(60)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(5, 15, 5, 15)
         left_layout.setSpacing(10)
         
         report_button = QPushButton("", objectName="sideBarButton")
         report_button.setIcon(QIcon("./source/report-icon.png"))
-        report_button.setIconSize(QSize(30, 30)) # Set a suitable icon size
-        report_button.setToolTip("报告") # Add a tooltip for clarity
+        report_button.setIconSize(QSize(30, 30))
+        report_button.setToolTip("报告")
         report_button.clicked.connect(self.open_last_report)
 
         settings_button = QPushButton("", objectName="sideBarButton")
         settings_button.setIcon(QIcon("./source/settings-icon.png"))
-        settings_button.setIconSize(QSize(30, 30)) # Set a suitable icon size
-        settings_button.setToolTip("设置") # Add a tooltip for clarity
+        settings_button.setIconSize(QSize(30, 30))
+        settings_button.setToolTip("设置")
         settings_button.clicked.connect(self.open_settings_dialog)
 
         left_layout.addStretch() 
@@ -531,37 +550,51 @@ class App(QWidget):
         model_info_layout.addLayout(model_row1_layout)
         right_layout.addWidget(self.model_info_card)
 
-        # ### MODIFIED: 参数设置卡片 ###
         self.settings_card = QFrame(objectName="card")
         settings_layout = QVBoxLayout(self.settings_card)
         settings_layout.setSpacing(15)
         settings_layout.setContentsMargins(20, 15, 20, 20)
         settings_layout.addWidget(QLabel("参数设置", objectName="cardTitle"))
         
-        # 第一行: 串口端口 和 有线网卡 和 无线网卡
         params_row1_layout = QHBoxLayout()
         params_row1_layout.addWidget(QLabel("串口端口:"))
         self.serial_port_combo = QComboBox()
-        self.serial_port_combo.setMinimumWidth(230)
         self.populate_serial_ports()
+        self.serial_port_combo.setMinimumWidth(230)
         params_row1_layout.addWidget(self.serial_port_combo, 1)
-        params_row1_layout.addSpacing(10)
+        params_row1_layout.addSpacing(20)
         params_row1_layout.addWidget(QLabel("有线网卡:"))
-        self.wired_port_combo = QComboBox()
-        self.populate_network_interfaces(self.wired_port_combo)
-        params_row1_layout.addWidget(self.wired_port_combo, 1)
-        params_row1_layout.addSpacing(10)
+        self.wired_adapter_combo = QComboBox()
+        self.populate_network_interfaces(self.wired_adapter_combo)
+        params_row1_layout.addWidget(self.wired_adapter_combo, 1)
+        params_row1_layout.addSpacing(20)
         params_row1_layout.addWidget(QLabel("无线网卡:"))
-        self.wireless_port_combo = QComboBox()
-        self.populate_network_interfaces(self.wireless_port_combo)
-        params_row1_layout.addWidget(self.wireless_port_combo, 1)
+        wireless_container = QWidget()
+        wireless_layout = QGridLayout(wireless_container)
+        wireless_layout.setContentsMargins(0, 0, 0, 0) # 去除内边距
+
+        self.wireless_adapter_combo = QComboBox()
+        self.populate_network_interfaces(self.wireless_adapter_combo)
         self.adapter_support_6g_checkbox = QCheckBox("支持6G")
-        params_row1_layout.addWidget(self.adapter_support_6g_checkbox,alignment=Qt.AlignmentFlag.AlignBottom)
-        # params_row1_layout.addStretch(1) # 添加一个伸缩因子，让布局更规整
+        self.adapter_support_6g_checkbox.setStyleSheet("""
+            QCheckBox {
+             background-color: white;
+                margin-right: 30px;
+                padding-left: 5px
+            }
+        """)
+        # 将下拉框和复选框都添加到布局的同一个单元格(0, 0)
+        wireless_layout.addWidget(self.wireless_adapter_combo, 0, 0)
+        # 将复选框对齐到单元格的右下角
+        wireless_layout.addWidget(self.adapter_support_6g_checkbox, 0, 0, Qt.AlignmentFlag.AlignRight)
+        
+        # 将包含重叠控件的容器添加到主布局中
+        params_row1_layout.addWidget(wireless_container, 1)
+        # --- 结束修改 ---
+        
         settings_layout.addLayout(params_row1_layout)
         right_layout.addWidget(self.settings_card)
 
-        # ### MODIFIED: 用例脚本卡片 ###
         scripts_card = QFrame(objectName="card")
         scripts_layout = QVBoxLayout(scripts_card)
         scripts_layout.setSpacing(10)
@@ -622,8 +655,8 @@ class App(QWidget):
         self.model_name_entry.textChanged.connect(self.save_settings_silently)
         self.software_version_entry.textChanged.connect(self.save_settings_silently)
         self.serial_port_combo.currentTextChanged.connect(self.save_settings_silently)
-        self.wired_port_combo.currentTextChanged.connect(self.save_settings_silently)
-        self.wireless_port_combo.currentTextChanged.connect(self.save_settings_silently)
+        self.wired_adapter_combo.currentTextChanged.connect(self.save_settings_silently)
+        self.wireless_adapter_combo.currentTextChanged.connect(self.save_settings_silently)
         self.adapter_support_6g_checkbox.stateChanged.connect(self.save_settings_silently)
         self.scripts_table.itemChanged.connect(self.save_settings_silently)
 
@@ -660,10 +693,10 @@ class App(QWidget):
                 with open(self.settings_path, "r", encoding="utf-8") as f:
                     self.settings = json.load(f)
             except (json.JSONDecodeError, IOError) as e:
-                self.status_label.setText(f"加载配置文件失败: {e}")
+                self.status_label.setText(f"加载配置文件失败: {e}，将使用默认设置")
                 self.settings = {}
         else:
-             self.settings = {}
+            self.settings = {}
 
         all_widgets = [
             self.model_name_entry, self.software_version_entry,
@@ -671,7 +704,7 @@ class App(QWidget):
         for widget in all_widgets:
             widget.textChanged.disconnect(self.save_settings_silently)
         
-        all_combos = [self.serial_port_combo, self.wired_port_combo, self.wireless_port_combo]
+        all_combos = [self.serial_port_combo, self.wired_adapter_combo, self.wireless_adapter_combo]
         for combo in all_combos:
             combo.currentTextChanged.disconnect(self.save_settings_silently)
 
@@ -690,8 +723,8 @@ class App(QWidget):
                 combo.setCurrentText(default)
         
         set_combo_value(self.serial_port_combo, "serial_port")
-        set_combo_value(self.wired_port_combo, "wired_port")
-        set_combo_value(self.wireless_port_combo, "wireless_port")
+        set_combo_value(self.wired_adapter_combo, "wired_adapter")
+        set_combo_value(self.wireless_adapter_combo, "wireless_adapter")
 
         selected_scripts = self.settings.get("selected_scripts", [])
         cases = get_cases()
@@ -712,7 +745,18 @@ class App(QWidget):
         self.adapter_support_6g_checkbox.stateChanged.connect(self.save_settings_silently)
         self.scripts_table.itemChanged.connect(self.save_settings_silently)
 
+        if not os.path.exists(self.settings_path) or not self.settings:
+             self.save_settings()
+
     def save_settings(self):
+        current_disk_settings = {}
+        if os.path.exists(self.settings_path):
+            try:
+                with open(self.settings_path, 'r', encoding='utf-8') as f:
+                    current_disk_settings = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                pass
+
         selected_scripts = []
         for i in range(self.scripts_table.rowCount()):
             if self.scripts_table.item(i, 0).checkState() == Qt.CheckState.Checked:
@@ -721,17 +765,20 @@ class App(QWidget):
         def get_combo_value(combo):
             text = combo.currentText()
             return "" if text == "不使用" else text
-
-        self.settings = {
+        
+        ui_settings = {
             "model_name": self.model_name_entry.text(),
             "software_version": self.software_version_entry.text(),
             "serial_port": get_combo_value(self.serial_port_combo),
-            "wired_port": get_combo_value(self.wired_port_combo),
-            "wireless_port": get_combo_value(self.wireless_port_combo),
+            "wired_adapter": get_combo_value(self.wired_adapter_combo),
+            "wireless_adapter": get_combo_value(self.wireless_adapter_combo),
             "adapter_support_6g": self.adapter_support_6g_checkbox.isChecked(),
             "selected_scripts": selected_scripts
         }
         
+        current_disk_settings.update(ui_settings)
+        self.settings = current_disk_settings
+
         try:
             full_path = os.path.abspath(self.settings_path)
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
@@ -770,6 +817,7 @@ class App(QWidget):
         self.timer_label.setText("执行时间: 00:00:00")
         self.timer_label.setVisible(True)
         self.execution_timer.start(1000)
+        self.progress_bar.setValue(1)
 
         self.runner_thread = RunnerThread(selected_cases, current_settings)
         self.runner_thread.status_update.connect(self.status_label.setText)
@@ -818,9 +866,11 @@ class App(QWidget):
         dialog.exec()
     
     def set_settings_path(self, path):
+        # 路径已经由 SettingsDialog 预先验证，这里直接加载
         self.settings_path = path
         self.status_label.setText(f"已加载配置文件: {os.path.basename(path)}")
         self.load_settings()
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
