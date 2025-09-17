@@ -103,7 +103,7 @@ def run_one_report(case, dev, log_base_dir):
                 "--log_root", log_dir,
                 "--outfile", report_path,
                 "--lang", "zh",
-                "--plugin", "airtest_selenium.report"
+                "--plugin", "tp_airtest_selenium.report"
             ]
             is_windows = os.name == 'nt'
             subprocess.call(cmd, shell=is_windows, cwd=os.getcwd())
@@ -160,7 +160,7 @@ def get_log_dir(case, device, log_base_dir):
     """
     # 清理设备名中的非法字符
     safe_device_name = device.replace(":", "_").replace(".", "_")
-    log_dir = os.path.join(log_base_dir, case.replace(".air", ".log"), safe_device_name)
+    log_dir = os.path.join(log_base_dir, case, safe_device_name)
     os.makedirs(log_dir, exist_ok=True)
     return log_dir
 

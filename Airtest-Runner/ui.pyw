@@ -530,7 +530,7 @@ class RunnerThread(QThread):
                 "--log_root", log_dir,
                 "--outfile", report_path,
                 "--lang", "zh",
-                "--plugin", "airtest_selenium.report"
+                "--plugin", "tp_airtest_selenium.report"
             ]
             is_windows = (os.name == 'nt')
             report_process = subprocess.Popen(

@@ -8,6 +8,7 @@ LOGDIR = "log"
 old_trans_screen = report.LogToHtml._translate_screen
 old_trans_desc = report.LogToHtml._translate_desc
 old_trans_code = report.LogToHtml._translate_code
+old_trans_info = report.LogToHtml._translate_info
 
 screen_func = ["find_element_by_xpath", "find_element_by_id", "find_element_by_name", "assert_screen", "assert_custom", "assert_exist",
                "back", "forward", "switch_to_new_tab", "switch_to_previous_tab", "get",
@@ -123,8 +124,15 @@ def new_translate_code(self, step):
                 trans["args"].pop(idx)
     return trans
 
+def new_translate_info(self, step):
+    trace_msg, log_msg = old_trans_info(self, step)
+    if step["tag"] == "function" and not trace_msg:
+        if "logs" in step["data"].get("call_args", {}):
+            log_msg = step["data"]["call_args"]["logs"]
+    return trace_msg, log_msg
 
 report.LogToHtml._translate_screen = new_trans_screen
 report.LogToHtml._translate_desc = new_translate_desc
 report.LogToHtml._translate_code = new_translate_code
+report.LogToHtml._translate_info = new_translate_info
 

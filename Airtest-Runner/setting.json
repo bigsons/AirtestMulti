@@ -2,9 +2,11 @@
   "model_name": "Archer BE800(US) 1.0",
   "software_version": "",
   "img_file": "C:/Users/Administrator/Desktop/AirtestMulti/Airtest-Runner/source",
-  "serial_port": "",
+  "serial_port": "COM5",
   "wired_adapter": "本地连接* 1",
   "wireless_adapter": "WLAN",
   "adapter_support_6g": false,
-  "selected_scripts": []
+  "selected_scripts": [
+    "test1-1.air"
+  ]
 }

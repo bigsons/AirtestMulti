@@ -8,8 +8,8 @@ from airtest.core.settings import Settings as ST
 from airtest.core.helper import logwrap, log
 from airtest import aircv
 from airtest.core.cv import Template
-from airtest_selenium.utils.airtest_api import loop_find, try_log_screen
-from airtest_selenium.exceptions import IsNotTemplateError
+from tp_airtest_selenium.utils.airtest_api import loop_find, try_log_screen
+from tp_airtest_selenium.exceptions import IsNotTemplateError
 from airtest.aircv import get_resolution
 from pynput.mouse import Controller, Button
 from airtest.core.error import TargetNotFoundError
@@ -19,6 +19,9 @@ import os
 import time
 import sys
 
+import json
+from .utils.serial_utils import SerialManager
+from .utils.network_utils import WifiManager, get_ip_address, ping
 
 class WebChrome(Chrome):
 
@@ -45,6 +48,38 @@ class WebChrome(Chrome):
         self.operation_to_func = {"elementsD": self.find_any_element, "xpath": self.find_element_by_xpath,
                                   "id": self.find_element_by_id,
                                   "name": self.find_element_by_name, "css": self.find_element_by_css_selector}
+        self.settings = self._load_settings()
+        self.serial_manager = None
+        self.wifi_manager = None
+        if self.settings.get("serial_port"):
+            self.serial_manager = SerialManager(self.settings["serial_port"])
+        if self.settings.get("wireless_adapter"):
+            try:
+                self.wifi_manager = WifiManager(self.settings["wireless_adapter"])
+            except Exception as e:
+                print(f"初始化WifiManager失败: {e}")
+
+    def _load_settings(self):
+        """
+        加载配置文件
+        """
+        try:
+            with open(ST.PROJECT_ROOT + "/setting.json", "r", encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            print("未找到 setting.json 配置文件。")
+            return {}
+
+    def get_setting(self, key=None, default=None):
+        """
+        获取setting.json中的配置.
+        :param key: 要获取的配置项的键，如果为None，则返回整个配置字典.
+        :param default: 当键不存在时返回的默认值.
+        :return: 配置值或整个配置字典.
+        """
+        if key:
+            return self.settings.get(key, default)
+        return self.settings
 
     def loop_find_element(self, func, text, by=By.ID, timeout=10, interval=0.5):
         """
@@ -348,7 +383,7 @@ class WebChrome(Chrome):
         """
         log(logs)
         if not (param) :
-            raise AssertionError("Custom step execution failed. Log: \n\n%s" % logs)
+            raise AssertionError("%s Custom step execution failed. Log: \n\n%s" % msg, logs)
         else :
             self._gen_screen_log()
 
@@ -356,8 +391,6 @@ class WebChrome(Chrome):
     def assert_screen(self, old_screen_path, threshold=0.9, msg=""):
         # 1. Take new screenshot
         new_screen = self.screenshot()
-        self._gen_screen_log()
-        self._gen_screen_log()
         self._gen_screen_log()
         # 2. Read old screenshot
         try:
@@ -384,7 +417,36 @@ class WebChrome(Chrome):
 
         if result < threshold:
             raise AssertionError("%s 图片差异过大." % msg, result)
-    
+
+
+    @logwrap
+    def assert_two_picture(self, old_screen_path, new_screen_path,threshold=0.9, msg=""):
+        try:
+            old_screen = aircv.imread(old_screen_path)
+            new_screen = aircv.imread(new_screen_path)
+        except Exception as e:
+            raise IOError("Failed to read old screen image at path: %s. Error: %s" % (old_screen_path, e))
+
+        # 3. Compare them using the correct function: aircv.cal_rgb_confidence
+        #    注意: aircv.cal_rgb_confidence 要求两张图片尺寸完全一致
+        #    在Web自动化场景中，只要浏览器窗口大小不变，截图尺寸就是一致的
+        #
+        try:
+            result = cal_rgb_confidence(old_screen, new_screen)
+        except Exception as e:
+            print("Could not compare images, likely due to different sizes. Error: %s" % e)
+            raise AssertionError("%s Screens could not be compared)." % msg)
+
+        # 检查图片尺寸是否一致
+        if old_screen.shape != new_screen.shape:
+            raise ValueError("Images must have the same dimensions for comparison. "
+                            "Old: %s, New: %s" % (old_screen.shape, new_screen.shape))
+        # 生成并获取对比图的文件名
+        self._generate_diff_image(old_screen, new_screen)
+
+        if result < threshold:
+            raise AssertionError("%s 图片差异过大." % msg, result)
+
     def _generate_diff_image(self, old_screen, new_screen, diff_threshold=10):
         """
         [Optimized Version]
@@ -442,21 +504,96 @@ class WebChrome(Chrome):
         try_log_screen(comparison_image, png_path)
 
     @logwrap
-    def compare_and_show_diff(self, old_screen_path, msg=""):
-        """
-        Compares the current screen with an old one and logs a side-by-side
-        image with differences highlighted in the report.
-        
-        Args:
-            old_screen_path: The file path of the old screenshot to compare against.
-            msg: A message to display in the report.
-        """
-        new_screen = self.screenshot()
-        try:
-            old_screen = aircv.imread(old_screen_path)
-        except Exception as e:
-            raise IOError("Failed to read old screen image at path: %s. Error: %s" % (old_screen_path, e))
+    def open_serial(self):
+        """打开串口"""
+        if self.serial_manager:
+            return self.serial_manager.open_serial()
+        else:
+            print("未在 setting.json 中配置串口。")
+            return False
 
+    @logwrap
+    def serial_login(self, username="root",password=None, timeout=10):
+        """
+        登录OpenWrt设备串口.
+        :param username: 登录用户名, 默认为'root'.
+        :param timeout: 等待登录成功的超时时间.
+        :return: True表示登录成功, False表示失败.
+        """
+        if self.serial_manager:
+            if not password:
+                password = self.get_setting("serial_passwd")
+            if not password:
+                print("错误: 未在 setting.json 中找到串口密码 (serial_passwd)。")
+                return False
+            return self.serial_manager.serial_login(username, password, timeout)
+        else:
+            print("串口未初始化。")
+            return False
+   
+    @logwrap
+    def serial_close(self):
+        """关闭串口"""
+        if self.serial_manager:
+            self.serial_manager.serial_close()
+
+    @logwrap
+    def serial_send(self, command):
+        """向串口发送命令"""
+        if self.serial_manager:
+            self.serial_manager.send_cmd(command)
+    
+    @logwrap
+    def serial_get(self, lines=None, duration=None):
+        """获取串口日志"""
+        if self.serial_manager:
+            if duration:
+                return self.serial_manager.read_log_duration(duration)
+            elif lines:
+                return self.serial_manager.read_log_lines(lines)
+        return []
+
+    @logwrap
+    def check_serial_log(self, pattern, lines=None, duration=None):
+        """检查串口日志中是否包含指定内容"""
+        if self.serial_manager:
+            return self.serial_manager.search_log(pattern, lines, duration)
+        return False, None
+
+    @logwrap
+    def connect_wifi(self, ssid, password):
+        """连接到指定的WiFi"""
+        if self.wifi_manager:
+            return self.wifi_manager.connect_wifi(ssid, password)
+        else:
+            print("未在 setting.json 中配置无线网卡。")
+            return False
+
+    @logwrap
+    def disconnect_wifi(self):
+        """断开WiFi连接"""
+        if self.wifi_manager:
+            return self.wifi_manager.disconnect_wifi()
+        return False
+
+    @logwrap
+    def get_ip(self, interface_type="wired"):
+        """获取有线或无线网卡的IP地址"""
+        if interface_type == "wired":
+            interface_name = self.settings.get("wired_adapter")
+        else:
+            interface_name = self.settings.get("wireless_adapter")
+            
+        if interface_name:
+            return get_ip_address(interface_name)
+        else:
+            print(f"未在 setting.json 中配置 {interface_type} 网卡。")
+            return None
+    
+    @logwrap
+    def ping(self, ip_address, count=4):
+        """Ping一个IP地址"""
+        return ping(ip_address, count)
 
 
     @logwrap

@@ -1,7 +1,7 @@
 # coding=utf-8
 from __future__ import unicode_literals
 
-import airtest_selenium.utils.six as six
+import tp_airtest_selenium.utils.six as six
 
 def to_text(val):
     if not isinstance(val, six.text_type):
