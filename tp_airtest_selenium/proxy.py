@@ -630,6 +630,86 @@ class WebChrome(Chrome):
         self._gen_screen_log(filename=filename)
 
     @logwrap
+    def full_snapshot(self, filename=None, msg=""):
+        """
+        通过滚动和拼接来截取完整的网页长图。
+        注意: 此功能可能无法完美处理带有固定/粘性页眉页脚、或动态加载内容的复杂页面。
+        Args:
+            filename: 保存截图的文件名 (可选).
+            msg: 截图描述 (可选).
+        """
+        log("开始截取长图...")
+        if ST.LOG_DIR is None:
+            return None
+
+        # 确定文件路径
+        if not filename:
+            png_file_name = str(int(time.time())) + '_full.png'
+            filepath = os.path.join(ST.LOG_DIR, png_file_name)
+        else:
+            filepath = os.path.join(ST.LOG_DIR, filename)
+
+        try:
+            # 1. 使用JavaScript获取页面和视口的高度
+            total_height_js = self.execute_script("return document.body.scrollHeight")
+            viewport_height_js = self.execute_script("return window.innerHeight")
+
+            # 如果页面无需滚动，则调用普通截图
+            if total_height_js <= viewport_height_js:
+                 log("页面无需滚动，将执行普通截图。")
+                 return self._gen_screen_log(filename=filename)
+
+            # 2. 滚动到页面顶部
+            self.execute_script("window.scrollTo(0, 0)")
+            time.sleep(1) # 等待页面稳定
+
+            # 3. 计算截图的实际像素尺寸 (处理Retina/HiDPI屏幕)
+            part = self.screenshot()
+            h, w, _ = part.shape
+            device_pixel_ratio = h / viewport_height_js
+            
+            total_height_pixels = int(total_height_js * device_pixel_ratio)
+
+            # 4. 创建一个足够大的空白画布来拼接所有截图
+            stitched_image = np.zeros((total_height_pixels, w, 3), dtype=np.uint8)
+
+            y_offset = 0
+            while y_offset < total_height_pixels:
+                # 截取当前视口
+                current_screenshot = self.screenshot()
+                current_h, _, _ = current_screenshot.shape
+
+                # 计算需要粘贴的高度，防止最后一张图超出范围
+                paste_h = current_h
+                if y_offset + current_h > total_height_pixels:
+                    paste_h = total_height_pixels - y_offset
+                    current_screenshot = current_screenshot[:paste_h, :]
+
+                # 将截图粘贴到画布的正确位置
+                stitched_image[y_offset : y_offset + paste_h, :] = current_screenshot
+                
+                y_offset += paste_h
+
+                # 如果已拼接完整，则退出循环
+                if y_offset >= total_height_pixels:
+                    break
+                
+                # 滚动到下一个位置
+                self.execute_script(f"window.scrollTo(0, {int(y_offset / device_pixel_ratio)})")
+                time.sleep(0.5)
+
+            # 5. 保存最终拼接的图片
+            aircv.imwrite(filepath, stitched_image)
+            log(f"长截图已保存至: {filepath}")
+            
+            # 6. 返回报告所需的数据
+            return {"screen": filepath}
+
+        except Exception as e:
+            log(f"截取长图失败: {e}", "error")
+            return self._gen_screen_log() # 失败时回退到普通截图
+
+    @logwrap
     def _gen_screen_log(self, element=None, filename=None, ):
         if ST.LOG_DIR is None:
             return None
