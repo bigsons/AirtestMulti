@@ -7,9 +7,11 @@ import sys
 import time
 import traceback
 import webbrowser
+import ctypes
 
 #  第三方库导入
 import psutil
+import serial
 import serial.tools.list_ports
 from jinja2 import Environment, FileSystemLoader
 
@@ -29,7 +31,7 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
 #  自定义控件与委托
 # =====================================================================================================================
 class NoFocusDelegate(QStyledItemDelegate):
-    """ 一个表格委托，用于移除单元格被选中时的虚线框。""" 
+    """ 一个表格委托，用于移除单元格被选中时的虚线框。"""
     def paint(self, painter, option, index):
         if option.state & QStyle.StateFlag.State_HasFocus:
             option.state = option.state & ~QStyle.StateFlag.State_HasFocus
@@ -37,7 +39,7 @@ class NoFocusDelegate(QStyledItemDelegate):
 
 
 class ClickableLineEdit(QLineEdit):
-    """ 一个可以发出点击信号的 QLineEdit。""" 
+    """ 一个可以发出点击信号的 QLineEdit。"""
     clicked = pyqtSignal()
 
     def mousePressEvent(self, event):
@@ -47,7 +49,7 @@ class ClickableLineEdit(QLineEdit):
 
 
 class DoubleClickLineEdit(QLineEdit):
-    """ 一个需要双击才能进入编辑状态的 QLineEdit。""" 
+    """ 一个需要双击才能进入编辑状态的 QLineEdit。"""
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
         self.setReadOnly(True)
@@ -56,7 +58,7 @@ class DoubleClickLineEdit(QLineEdit):
         self.editingFinished.connect(self.on_editing_finished)
 
     def mouseDoubleClickEvent(self, event):
-        """ 双击时，设置为可编辑状态。""" 
+        """ 双击时，设置为可编辑状态。"""
         self.setReadOnly(False)
         self.setFrame(True)
         self.setStyleSheet("")  # 恢复默认样式以显示边框
@@ -65,7 +67,7 @@ class DoubleClickLineEdit(QLineEdit):
         super().mouseDoubleClickEvent(event)
 
     def on_editing_finished(self):
-        """ 编辑完成后，恢复为只读状态。""" 
+        """ 编辑完成后，恢复为只读状态。"""
         self.setReadOnly(True)
         self.setFrame(False)
         self.setStyleSheet("DoubleClickLineEdit { background-color: transparent; }")
@@ -76,7 +78,7 @@ class DoubleClickLineEdit(QLineEdit):
 #  其他参数设置页面
 # =====================================================================================================================
 class OtherSettingsPage(QWidget):
-    """ 用于显示和编辑非主要UI参数的页面。""" 
+    """ 用于显示和编辑非主要UI参数的页面。"""
     MAIN_UI_KEYS = {
         "model_name", "software_version", "img_file", "serial_port",
         "wired_adapter", "wireless_adapter", "adapter_support_6g", "selected_scripts"
@@ -88,7 +90,7 @@ class OtherSettingsPage(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        """ 初始化UI组件。""" 
+        """ 初始化UI组件。"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(25, 20, 25, 15)
         layout.setSpacing(10)
@@ -145,7 +147,7 @@ class OtherSettingsPage(QWidget):
 
     @staticmethod
     def _value_to_string(value):
-        """ 将Python值安全地转换为JSON字符串。""" 
+        """ 将Python值安全地转换为JSON字符串。"""
         if value is None:
             return "null"
         try:
@@ -154,7 +156,7 @@ class OtherSettingsPage(QWidget):
             return str(value)
 
     def _clear_grid_layout(self):
-        """ 清空网格布局中的所有小部件。""" 
+        """ 清空网格布局中的所有小部件。"""
         while self.params_grid.count():
             item = self.params_grid.takeAt(0)
             widget = item.widget()
@@ -162,7 +164,7 @@ class OtherSettingsPage(QWidget):
                 widget.deleteLater()
 
     def update_dynamic_height(self):
-        """ 根据条目数量精确计算并设置卡片高度。""" 
+        """ 根据条目数量精确计算并设置卡片高度。"""
         num_rows = 0
         for i in range(self.params_grid.rowCount()):
             if self.params_grid.itemAtPosition(i, 0) is not None:
@@ -193,7 +195,7 @@ class OtherSettingsPage(QWidget):
             self.scroll_area.setMaximumHeight(final_height)
 
     def load_other_settings(self):
-        """ 从主窗口的设置中加载所有“其他”参数并显示。""" 
+        """ 从主窗口的设置中加载所有“其他”参数并显示。"""
         self._clear_grid_layout()
         settings = self.main_window.settings
         other_params = {k: v for k, v in settings.items() if k not in self.MAIN_UI_KEYS}
@@ -247,7 +249,7 @@ class OtherSettingsPage(QWidget):
         self.update_dynamic_height()
 
     def add_parameter(self):
-        """ 添加一个新的参数条目。""" 
+        """ 添加一个新的参数条目。"""
         i = 1
         while True:
             new_key = f"new_param_{i}"
@@ -261,7 +263,7 @@ class OtherSettingsPage(QWidget):
         self.main_window.status_label.setText(f"已添加新条目: '{new_key}', 请修改。")
 
     def delete_parameter(self, key_to_delete):
-        """ 删除指定的参数条目。""" 
+        """ 删除指定的参数条目。"""
         if key_to_delete in self.main_window.settings:
             del self.main_window.settings[key_to_delete]
             self.main_window.save_settings_silently()
@@ -269,7 +271,7 @@ class OtherSettingsPage(QWidget):
             self.main_window.status_label.setText(f"已删除参数: '{key_to_delete}'")
 
     def update_parameter_key(self, old_key, key_editor):
-        """ 当参数的键被修改时调用。""" 
+        """ 当参数的键被修改时调用。"""
         new_key = key_editor.text().strip()
 
         if not new_key or new_key == old_key:
@@ -295,7 +297,7 @@ class OtherSettingsPage(QWidget):
         self.main_window.status_label.setText(f"参数 '{old_key}' 已重命名为 '{new_key}'")
 
     def update_setting(self, key_editor, value_editor):
-        """ 当参数的值被修改时调用。""" 
+        """ 当参数的值被修改时调用。"""
         key = key_editor.text()
         if key not in self.main_window.settings:
             return
@@ -318,7 +320,7 @@ class OtherSettingsPage(QWidget):
 #  测试脚本执行逻辑
 # =====================================================================================================================
 def get_script_description(case_script):
-    """ 从测试脚本文件中提取 __brief__ 描述。""" 
+    """ 从测试脚本文件中提取 __brief__ 描述。"""
     try:
         script_name = os.path.splitext(case_script)[0]
         script_path = os.path.join(os.getcwd(), "case", case_script, f"{script_name}.py")
@@ -334,28 +336,51 @@ def get_script_description(case_script):
 
 
 def get_report_dir():
-    """ 获取报告存放的根目录。""" 
+    """ 获取报告存放的根目录。"""
     return os.path.join(os.getcwd(), "result")
 
 
 def get_log_dir(case, device, log_base_dir):
-    """ 根据用例和设备生成一个安全的日志目录路径。""" 
+    """ 根据用例和设备生成一个安全的日志目录路径。"""
     safe_device_name = device.replace(":", "_").replace(".", "_")
-    log_dir = os.path.join(log_base_dir, case.replace(".air", ".log"), safe_device_name)
+    log_dir = os.path.join(log_base_dir, case, safe_device_name)
     os.makedirs(log_dir, exist_ok=True)
     return log_dir
 
 
 def get_cases():
-    """ 从 'case' 文件夹获取所有测试用例。""" 
+    """ 从 'case' 文件夹获取所有测试用例。"""
     case_dir = os.path.join(os.getcwd(), "case")
     if not os.path.isdir(case_dir):
         return []
     return sorted([name for name in os.listdir(case_dir)])
 
 
+class PortCheckThread(QThread):
+    """ 一个在后台检查串口可用性的线程，以避免UI阻塞。"""
+    finished = pyqtSignal(bool, str)  # 发送信号: is_success (bool), message (str)
+
+    def __init__(self, port_name, parent=None):
+        super().__init__(parent)
+        self.port_name = port_name
+
+    def run(self):
+        """ 尝试打开串口并发送结果信号。"""
+        if not self.port_name or self.port_name == "不使用":
+            self.finished.emit(True, "")  # 成功，因为无需检查
+            return
+
+        try:
+            ser = serial.Serial(self.port_name)
+            ser.close()
+            self.finished.emit(True, "")  # 成功，端口可用
+        except serial.SerialException:
+            error_message = f"错误: 串口 '{self.port_name}' 已被占用或无法访问。"
+            self.finished.emit(False, error_message)  # 失败
+
+
 class RunnerThread(QThread):
-    """ 在一个单独的线程中运行Airtest测试脚本。""" 
+    """ 在一个单独的线程中运行Airtest测试脚本。"""
     status_update = pyqtSignal(str)
     progress_update = pyqtSignal(int)
     finished = pyqtSignal(str)
@@ -366,10 +391,11 @@ class RunnerThread(QThread):
         self.settings = settings
         self.running = True
         self.process_list = []
+        self.report_dir = get_report_dir()
 
     def run(self):
-        """ 线程的主执行函数。""" 
-        report_dir = get_report_dir()
+        """ 线程的主执行函数。"""
+        report_dir = self.report_dir
         log_base_dir = os.path.join(report_dir, 'log')
         
         # 1. 清理旧的报告目录
@@ -444,8 +470,10 @@ class RunnerThread(QThread):
             self.finished.emit("")
 
     def run_on_devices(self, case, devices, log_base_dir):
-        """ 为单个用例启动一个或多个Airtest子进程。""" 
+        """ 为单个用例启动一个或多个Airtest子进程。"""
         tasks = []
+        env = os.environ.copy()
+        env['PROJECT_ROOT'] = os.getcwd()
         case_name = os.path.splitext(case)[0]
         case_path = os.path.join(os.getcwd(), "case", case, f"{case_name}.py")
         for dev in devices:
@@ -456,6 +484,7 @@ class RunnerThread(QThread):
                 creation_flags = subprocess.CREATE_NO_WINDOW if is_windows else 0
                 process = subprocess.Popen(
                     cmd,
+                    env=env,
                     cwd=os.getcwd(),
                     shell=is_windows,
                     stdout=subprocess.PIPE,
@@ -469,7 +498,7 @@ class RunnerThread(QThread):
         return tasks
 
     def run_one_report(self, case, dev, log_base_dir):
-        """ 为单次用例运行生成HTML报告。""" 
+        """ 为单次用例运行生成HTML报告。"""
         log_dir = get_log_dir(case, dev, log_base_dir)
         log_txt = os.path.join(log_dir, 'log.txt')
         case_name = os.path.splitext(case)[0]
@@ -513,14 +542,14 @@ class RunnerThread(QThread):
             )
             report_process.communicate(timeout=60)
             
-            relative_path = os.path.join("log", case_name + '.log', dev, 'log.html').replace('\\', '/')
+            relative_path =  os.path.relpath(report_path, self.report_dir).replace('\\', '/')
             return {'status': 0, 'path': relative_path}
         except Exception:
             traceback.print_exc()
             return {'status': -1, 'path': ''}
 
     def run_summary(self, data, start_time):
-        """ 使用Jinja2模板生成最终的总结报告。""" 
+        """ 使用Jinja2模板生成最终的总结报告。"""
         try:
             summary = {
                 'time': f"{(time.time() - start_time):.3f}",
@@ -539,7 +568,7 @@ class RunnerThread(QThread):
             template = env.get_template('template')
             html = template.render(data=summary)
 
-            report_path = os.path.join(get_report_dir(), "result.html")
+            report_path = os.path.join(self.report_dir, "result.html")
             with open(report_path, "w", encoding="utf-8") as f:
                 f.write(html)
             
@@ -552,7 +581,6 @@ class RunnerThread(QThread):
         """ 停止线程和所有由它创建的子进程。"""
         self.running = False
         
-
         for p in self.process_list:
             if p.poll() is None:
                 try:
@@ -575,7 +603,7 @@ class RunnerThread(QThread):
 #  设置对话框
 # =====================================================================================================================
 class SettingsDialog(QDialog):
-    """ 设置对话框，提供导入/导出配置等功能。""" 
+    """ 设置对话框，提供导入/导出配置等功能。"""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.main_window = parent
@@ -584,28 +612,25 @@ class SettingsDialog(QDialog):
         self._setup_ui()
 
     def _setup_ui(self):
-        """ 初始化对话框UI。""" 
+        """ 初始化对话框UI。"""
         primary_color = "#4F46E5"
         primary_hover_color = "#4338CA"
         self.setStyleSheet(f""" 
             QDialog, QLabel, QCheckBox {{ 
-                font-size: 14px; 
-                font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; 
+                font-size: 14px; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; 
             }}
             QPushButton {{ 
-                background-color: {primary_color}; 
-                color: #fff; border: none; 
+                background-color: {primary_color}; color: #fff; border: none; 
                 padding: 8px 16px; 
                 border-radius: 4px; 
                 font-size: 14px; 
                 font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
             }}
             QPushButton:hover {{ 
-                background-color: {primary_hover_color}; 
+                background-color: {primary_hover_color};
             }}
             QLineEdit, QComboBox {{ 
-                padding: 5px; 
-                font-size: 14px; 
+                padding: 5px; font-size: 14px; 
                 font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; 
             }}
         """ )
@@ -634,12 +659,12 @@ class SettingsDialog(QDialog):
         layout.addStretch()
 
     def toggle_params_card(self, state):
-        """ 切换主界面参数面板的可见性。""" 
+        """ 切换主界面参数面板的可见性。"""
         is_checked = (state == Qt.CheckState.Checked.value)
         self.main_window.settings_card.setVisible(not is_checked)
 
     def import_config_file(self):
-        """ 导入JSON配置文件。""" 
+        """ 导入JSON配置文件。"""
         self.error_label.setVisible(False)
         file_path, _ = QFileDialog.getOpenFileName(self, "选择要导入的配置文件", "", "JSON Files (*.json)")
         if not file_path:
@@ -665,7 +690,7 @@ class SettingsDialog(QDialog):
             self.error_label.setVisible(True)
     
     def export_config_file(self):
-        """ 导出用户自定义的参数到JSON文件。""" 
+        """ 导出用户参数到JSON文件。"""
         self.error_label.setVisible(False)
         self.main_window.save_settings_silently()
         model_name = self.main_window.settings.get("model_name", "model")
@@ -676,30 +701,26 @@ class SettingsDialog(QDialog):
         if not file_path:
             return
         try:
-            # 导出时只导出自定义参数
-            other_params = {
-                k: v for k, v in self.main_window.settings.items() 
-                if k not in self.main_window.MAIN_UI_KEYS
-            }
+            settings_to_export = self.main_window.settings.copy()
             with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(other_params, f, indent=2, ensure_ascii=False)
+                json.dump(settings_to_export, f, indent=2, ensure_ascii=False)
             self.main_window.status_label.setText(f"配置已导出至: {os.path.basename(file_path)}")
             self.close()
         except IOError as e:
             self.error_label.setText(f"导出失败: {e}")
             self.error_label.setVisible(True)
 
-
 # =====================================================================================================================
 #  主应用程序界面
 # =====================================================================================================================
 class App(QWidget):
-    """ 应用程序的主窗口。""" 
+    """ 应用程序的主窗口。"""
     def __init__(self):
         super().__init__()
         self.settings = {}
         self.settings_path = "setting.json"
         self.runner_thread = None
+        self.port_check_thread = None
         self.start_time = 0
         self.MAIN_UI_KEYS = OtherSettingsPage.MAIN_UI_KEYS
 
@@ -710,7 +731,7 @@ class App(QWidget):
         self.load_settings()
 
     def setup_ui(self):
-        """ 初始化主窗口UI。""" 
+        """ 初始化主窗口UI。"""
         self.setWindowTitle("自动化自测工具")
         self.setWindowIcon(QIcon("./source/logo.png"))
         self.setGeometry(100, 100, 1000, 720)
@@ -740,7 +761,7 @@ class App(QWidget):
         self._connect_signals()
 
     def _set_stylesheet(self):
-        """ 设置全局QSS样式表。""" 
+        """ 设置全局QSS样式表。"""
         primary_color = "#4ACBD6"
         primary_hover_color = "#43b6c0"
         stop_button_color = "#4F46E5"
@@ -755,13 +776,11 @@ class App(QWidget):
         
         self.setStyleSheet(f""" 
             QWidget {{
-                color: {text_color};
-                font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+                color: {text_color}; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
                 background-color: {background_color};
             }}
             QFrame#card {{
-                background-color: {card_bg_color};
-                border: 1px solid {border_color};
+                background-color: {card_bg_color}; border: 1px solid {border_color};
                 border-radius: 8px;
             }}
             QLabel {{ font-size: 14px; background-color: transparent; }}
@@ -775,8 +794,7 @@ class App(QWidget):
                 color: {text_color};
             }}
             QLineEdit, QComboBox {{
-                background-color: {card_bg_color};
-                border: 1px solid {border_color};
+                background-color: {card_bg_color}; border: 1px solid {border_color};
                 border-radius: 6px; padding: 8px; font-size: 14px;
             }}
             QLineEdit:focus, QComboBox:focus {{ border-color: {primary_color}; }}
@@ -795,8 +813,7 @@ class App(QWidget):
                 selection-color: {text_color};
             }}
             QTableWidget::item {{
-                padding: 12px 10px;
-                border-bottom: 1px solid #F1F3F5;
+                padding: 12px 10px; border-bottom: 1px solid #F1F3F5;
             }}
             QTableWidget::item:selected {{ background-color: #E9EBF8; }}
             QTableWidget::item:focus {{ outline: none; }}
@@ -806,8 +823,7 @@ class App(QWidget):
                 font-weight: 600; font-size: 14px;
             }}
             QPushButton {{
-                background-color: {primary_color};
-                color: #fff; border: none; padding: 10px 20px;
+                background-color: {primary_color}; color: #fff; border: none; padding: 10px 20px;
                 border-radius: 6px; font-size: 14px;
                 font-weight: 500; min-height: 20px;
             }}
@@ -835,8 +851,7 @@ class App(QWidget):
                 background-color: #E9ECEF; border-color: #ADB5BD;
             }}
             QFrame#leftPanel {{
-                background-color: {dark_sidebar_color};
-                border-right: 1px solid #252525;
+                background-color: {dark_sidebar_color}; border-right: 1px solid #252525;
             }}
             QPushButton#sideBarButton {{
                 background-color: transparent; color: #D0D0D0;
@@ -851,13 +866,12 @@ class App(QWidget):
                 color: {secondary_text_color};
             }}
             QProgressBar::chunk {{
-                background-color: {primary_color};
-                border-radius: 6px;
+                background-color: {primary_color}; border-radius: 6px;
             }}
         """ )
 
     def _create_left_panel(self):
-        """ 创建左侧的图标按钮侧边栏。""" 
+        """ 创建左侧的图标按钮侧边栏。"""
         left_panel = QFrame(objectName="leftPanel")
         left_panel.setFixedWidth(60)
         left_layout = QVBoxLayout(left_panel)
@@ -870,8 +884,6 @@ class App(QWidget):
         main_page_button.setToolTip("测试主页")
         main_page_button.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(0))
         
-
-
         self.params_icon = QIcon("./source/params-icon.png")
         self.home_icon = QIcon("./source/home.png")
         self.other_settings_button = QPushButton("", objectName="sideBarButton")
@@ -901,7 +913,7 @@ class App(QWidget):
         return left_panel
 
     def _create_main_page(self):
-        """ 创建主内容页面。""" 
+        """ 创建主内容页面。"""
         main_page = QWidget()
         right_layout = QVBoxLayout(main_page)
         right_layout.setContentsMargins(25, 20, 25, 15)
@@ -974,6 +986,10 @@ class App(QWidget):
         table_header_layout = QHBoxLayout()
         table_header_layout.addWidget(QLabel("脚本列表", objectName="cardTitle"))
         table_header_layout.addStretch()
+        self.search_scripts_entry = QLineEdit()
+        self.search_scripts_entry.setPlaceholderText("搜索case...")
+        self.search_scripts_entry.setFixedWidth(250)
+        table_header_layout.addWidget(self.search_scripts_entry)
         self.select_all_checkbox = QCheckBox("全选")
         table_header_layout.addWidget(self.select_all_checkbox)
         scripts_layout.addLayout(table_header_layout)
@@ -1018,7 +1034,7 @@ class App(QWidget):
         return main_page
 
     def _connect_signals(self):
-        """ 集中连接所有UI组件的信号和槽。""" 
+        """ 集中连接所有UI组件的信号和槽。"""
         # 主页面输入变化的保存
         self.model_name_entry.textChanged.connect(self.save_settings_silently)
         self.software_version_entry.textChanged.connect(self.save_settings_silently)
@@ -1031,11 +1047,12 @@ class App(QWidget):
 
         # 按钮点击
         self.img_file_entry.clicked.connect(self.browse_img_file_path)
+        self.search_scripts_entry.textChanged.connect(self.filter_scripts)
         self.select_all_checkbox.stateChanged.connect(self.toggle_select_all)
         self.action_button.clicked.connect(self.toggle_runner)
 
     def on_page_changed(self, index):
-        """ 当页面切换时，改变参数按钮的图标和提示。""" 
+        """ 当页面切换时，改变参数按钮的图标和提示。"""
         if index == 1:
             self.other_settings_button.setIcon(self.home_icon)
             self.other_settings_button.setToolTip("返回主页")
@@ -1044,18 +1061,27 @@ class App(QWidget):
             self.other_settings_button.setToolTip("参数")
 
     def toggle_other_settings_page(self):
-        """ 切换主页和参数设置页面。""" 
+        """ 切换主页和参数设置页面。"""
         current_index = self.stacked_widget.currentIndex()
         self.stacked_widget.setCurrentIndex(1 - current_index)
 
     def browse_img_file_path(self):
-        """ 打开文件夹选择对话框以选择软件路径。""" 
+        """ 打开文件夹选择对话框以选择软件路径。"""
         directory = QFileDialog.getExistingDirectory(self, "选择软件文件夹")
         if directory:
             self.img_file_entry.setText(directory)
 
+    def filter_scripts(self):
+        """ 根据搜索框中的文本过滤脚本列表。"""
+        search_text = self.search_scripts_entry.text().lower()
+        for i in range(self.scripts_table.rowCount()):
+            item = self.scripts_table.item(i, 1)  # Column 1 is "脚本名称"
+            if item:
+                is_match = search_text in item.text().lower()
+                self.scripts_table.setRowHidden(i, not is_match)
+
     def populate_serial_ports(self):
-        """ 填充串口下拉框。""" 
+        """ 填充串口下拉框。"""
         self.serial_port_combo.addItem("不使用")
         try:
             ports = serial.tools.list_ports.comports()
@@ -1065,7 +1091,7 @@ class App(QWidget):
             print(f"无法获取串口: {e}")
 
     def populate_network_interfaces(self, combo_box):
-        """ 填充网卡下拉框。""" 
+        """ 填充网卡下拉框。"""
         combo_box.addItem("不使用")
         try:
             addrs = psutil.net_if_addrs()
@@ -1076,7 +1102,7 @@ class App(QWidget):
             combo_box.addItem("获取失败")
 
     def update_execution_time(self):
-        """ 更新执行计时器标签。""" 
+        """ 更新执行计时器标签。"""
         if self.start_time > 0:
             elapsed_seconds = int(time.time() - self.start_time)
             hours, remainder = divmod(elapsed_seconds, 3600)
@@ -1084,7 +1110,7 @@ class App(QWidget):
             self.timer_label.setText(f"执行时间: {hours:02}:{minutes:02}:{seconds:02}")
 
     def load_settings(self):
-        """ 从 setting.json 加载设置。""" 
+        """ 从 setting.json 加载设置。"""
         if os.path.exists(self.settings_path):
             try:
                 with open(self.settings_path, "r", encoding="utf-8") as f:
@@ -1100,7 +1126,7 @@ class App(QWidget):
             self.save_settings_silently()
 
     def populate_ui_from_settings(self):
-        """ 根据加载的设置填充UI界面。""" 
+        """ 根据加载的设置填充UI界面。"""
         # 暂时断开信号连接，以避免在填充UI时触发不必要的保存操作
         all_widgets = [self.model_name_entry, self.software_version_entry, self.img_file_entry]
         for widget in all_widgets:
@@ -1114,10 +1140,10 @@ class App(QWidget):
         self.scripts_table.itemChanged.disconnect(self.save_settings_silently)
         
         # 填充主UI
-        self.model_name_entry.setText(self.settings.get("model_name", "Archer AXE300"))
+        self.model_name_entry.setText(self.settings.get("model_name", "Archer BE800(US) 1.0"))
         self.software_version_entry.setText(self.settings.get("software_version", ""))
         self.img_file_entry.setText(self.settings.get("img_file", ""))
-        self.adapter_support_6g_checkbox.setChecked(self.settings.get("adapter_support_6g", True))
+        self.adapter_support_6g_checkbox.setChecked(self.settings.get("adapter_support_6g", False))
         
         def set_combo_value(combo, key, default="不使用"):
             saved_value = self.settings.get(key, default)
@@ -1156,7 +1182,7 @@ class App(QWidget):
         self.scripts_table.itemChanged.connect(self.save_settings_silently)
 
     def _get_main_page_settings(self):
-        """ 从UI控件中收集主页面的设置。""" 
+        """ 从UI控件中收集主页面的设置。"""
         selected_scripts = []
         for i in range(self.scripts_table.rowCount()):
             if self.scripts_table.item(i, 0).checkState() == Qt.CheckState.Checked:
@@ -1178,7 +1204,7 @@ class App(QWidget):
         }
 
     def save_settings(self):
-        """ 保存当前设置到 setting.json。""" 
+        """ 保存当前设置到 setting.json。"""
         main_page_settings = self._get_main_page_settings()
         self.settings.update(main_page_settings)
         
@@ -1191,19 +1217,40 @@ class App(QWidget):
             print(f"保存设置失败: {e}")
             
     def save_settings_silently(self):
-        """ 静默保存设置，通常由UI事件触发。""" 
+        """ 静默保存设置，通常由UI事件触发。"""
         self.save_settings()
 
     def toggle_runner(self):
-        """ 根据当前状态开始或停止测试。""" 
+        """ 根据当前状态开始或停止测试。"""
         if self.runner_thread and self.runner_thread.isRunning():
             self.stop_runner()
         else:
             self.start_runner()
 
     def start_runner(self):
-        """ 开始执行测试。""" 
-        self.save_settings_silently() 
+        """ 开始执行测试前，先在后台线程中检查串口。"""
+        self.save_settings_silently()
+        selected_port = self.serial_port_combo.currentText()
+
+        self.action_button.setEnabled(False)
+        self.status_label.setText(f"正在检查串口 '{selected_port}'...")
+
+        self.port_check_thread = PortCheckThread(selected_port)
+        self.port_check_thread.finished.connect(self.on_port_check_finished)
+        self.port_check_thread.start()
+
+    def on_port_check_finished(self, is_success, message):
+        """ 处理串口检查的结果。"""
+        if not is_success:
+            self.status_label.setText(message)
+            self.action_button.setEnabled(True)
+            return
+        
+        self.status_label.setText("串口检查通过，正在启动测试...")
+        self._proceed_with_execution()
+
+    def _proceed_with_execution(self):
+        """ 在所有检查通过后，正式启动测试执行线程。"""
         current_settings = self.settings.copy()
         start_timestamp = time.time()
         current_settings["start_time"] = start_timestamp
@@ -1211,11 +1258,13 @@ class App(QWidget):
         
         if not selected_cases:
             self.status_label.setText("请至少选择一个脚本")
+            self.action_button.setEnabled(True)
             return
             
         self.action_button.setText("停止运行")
         self.action_button.setObjectName("stopButton")
         self.action_button.style().polish(self.action_button)
+        self.action_button.setEnabled(True)
         
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
@@ -1233,7 +1282,7 @@ class App(QWidget):
         self.runner_thread.start()
 
     def stop_runner(self):
-        """ 停止正在运行的测试。""" 
+        """ 停止正在运行的测试。"""
         if self.runner_thread:
             self.runner_thread.stop()
             self.action_button.setText("正在停止...")
@@ -1241,7 +1290,7 @@ class App(QWidget):
         self.execution_timer.stop()
 
     def on_runner_finished(self, report_path):
-        """ 测试完成后恢复UI状态。""" 
+        """ 测试完成后恢复UI状态。"""
         self.action_button.setText("开始执行")
         self.action_button.setObjectName("")
         self.action_button.style().polish(self.action_button)
@@ -1253,16 +1302,17 @@ class App(QWidget):
             webbrowser.open(report_path)
 
     def toggle_select_all(self, state):
-        """ 全选或全不选所有脚本。""" 
+        """ 全选或全不选所有可见的脚本。"""
         self.scripts_table.itemChanged.disconnect(self.save_settings_silently)
         check_state = Qt.CheckState.Checked if state > 0 else Qt.CheckState.Unchecked
         for i in range(self.scripts_table.rowCount()):
-            self.scripts_table.item(i, 0).setCheckState(check_state)
+            if not self.scripts_table.isRowHidden(i):
+                self.scripts_table.item(i, 0).setCheckState(check_state)
         self.scripts_table.itemChanged.connect(self.save_settings_silently)
         self.save_settings_silently()
 
     def open_last_report(self):
-        """ 在浏览器中打开最新的报告文件。""" 
+        """ 在浏览器中打开最新的报告文件。"""
         report_path = os.path.join(get_report_dir(), "result.html")
         if os.path.exists(report_path):
             url = 'file:///' + os.path.realpath(report_path).replace('\\', '/')
@@ -1272,7 +1322,7 @@ class App(QWidget):
             self.status_label.setText("未找到报告文件，请先运行测试")
 
     def open_settings_dialog(self):
-        """ 打开设置对话框。""" 
+        """ 打开设置对话框。"""
         dialog = SettingsDialog(self)
         dialog.exec()
 
@@ -1280,8 +1330,27 @@ class App(QWidget):
 # =====================================================================================================================
 #  程序入口
 # =====================================================================================================================
+def is_admin():
+    """ 检查脚本是否以管理员权限运行 (仅限Windows) """
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
 if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    window = App()
-    window.show()
-    sys.exit(app.exec())
+    if os.name == 'nt':  # 仅在Windows上执行此检查
+        if is_admin():
+            # 如果已是管理员，正常运行程序
+            app = QApplication(sys.argv)
+            window = App()
+            window.show()
+            sys.exit(app.exec())
+        else:
+            # 如果不是管理员，则请求提权并重新运行
+            ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
+    else:
+        # 在非Windows系统上，直接运行
+        app = QApplication(sys.argv)
+        window = App()
+        window.show()
+        sys.exit(app.exec())

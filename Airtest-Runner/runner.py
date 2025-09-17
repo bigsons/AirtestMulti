@@ -108,7 +108,7 @@ def run_one_report(case, dev, log_base_dir):
             is_windows = os.name == 'nt'
             subprocess.call(cmd, shell=is_windows, cwd=os.getcwd())
             
-            relative_path = os.path.join("log", case_name + '.log', dev, 'log.html').replace('\\', '/')
+            relative_path = os.path.join("log", case, dev, 'log.html').replace('\\', '/')
             return {'status': 0, 'path': relative_path}
         else:
             print(f"报告生成失败: 未找到log.txt in {log_dir}")

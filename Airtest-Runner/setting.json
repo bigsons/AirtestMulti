@@ -1,18 +1,10 @@
 {
-  "model_name": "Archer AXE00",
-  "software_version": "的v发多少个",
+  "model_name": "Archer BE800(US) 1.0",
+  "software_version": "",
   "img_file": "C:/Users/Administrator/Desktop/AirtestMulti/Airtest-Runner/source",
   "serial_port": "",
-  "wired_adapter": "VMware Network Adapter VMnet8",
-  "wireless_adapter": "VMware Network Adapter VMnet1",
-  "adapter_support_6g": true,
-  "selected_scripts": [
-    "test1-1",
-    "test1-1.air",
-    "test1-1.air - 副本 - 副本"
-  ],
-  "wired_port": "Loopback Pseudo-Interface 1",
-  "wireless_port": "",
-  "adapter_supeport_6g": true,
-  "adapter_suppeort_6g": true
+  "wired_adapter": "本地连接* 1",
+  "wireless_adapter": "WLAN",
+  "adapter_support_6g": false,
+  "selected_scripts": []
 }
