@@ -2,6 +2,7 @@
 import os
 from urllib.parse import unquote
 import airtest.report.report as report
+import json
 
 LOGDIR = "log"
 
@@ -10,9 +11,12 @@ old_trans_desc = report.LogToHtml._translate_desc
 old_trans_code = report.LogToHtml._translate_code
 old_trans_info = report.LogToHtml._translate_info
 
-screen_func = ["find_element_by_xpath", "find_element_by_id", "find_element_by_name", "assert_screen", "assert_custom", "assert_exist",
-               "back", "forward", "switch_to_new_tab", "switch_to_previous_tab", "get",
-               "click", "send_keys", "snapshot"]
+screen_func = [
+    "find_element_by_xpath", "find_element_by_id", "find_element_by_name", 
+    "assert_screen", "assert_custom", "assert_exist", "assert_serial_log",
+    "back", "forward", "switch_to_new_tab", "switch_to_previous_tab", "get",
+    "click", "send_keys", "snapshot", "full_snapshot"
+]
 
 second_screen_func = ["click", "send_keys"]
 other_func = []
@@ -76,9 +80,10 @@ def new_translate_desc(self, step, code):
             "find_element_by_xpath": lambda: u"Find element by xpath: %s" % args.get("xpath"),
             "find_element_by_id": lambda: u"Find element by id: %s" % args.get("id"),
             "find_element_by_name": lambda: u"Find element by name: %s" % args.get("name"),
-            "assert_screen":u"Assert screen is almost equal",
-            "assert_custom": u"Assert that expression is true",
+            "assert_screen": "Assert a picture with screen snapshot",
+            "assert_custom": "Assert custom",
             "assert_exist": u"Assert element exists.",
+            "assert_serial_log": lambda: f"Assert serial log: \"{args.get('pattern')}\"",
             "click": u"Click the element that been found.",
             "send_keys": u"Send some text and keyboard event to the element that been found.",
             "get": lambda: u"Get the web address: %s" % (url),
@@ -87,48 +92,73 @@ def new_translate_desc(self, step, code):
             "back": u"Back to the last page.",
             "forward": u"Forward to the next page.",
             "snapshot": lambda: (u"Screenshot description: %s" % args.get("msg")) if args.get("msg") else u"Snapshot current page",
+            "full_snapshot": lambda: f"长截图描述: {args.get('msg')}" if args.get('msg') else "截取当前完整页面"
+
         }
 
         desc_zh = {
-            "find_element_by_xpath": lambda: u"寻找指定页面元素: \"%s\"" % args.get("xpath"),
-            "find_element_by_id": lambda: u"寻找指定页面元素: \"%s\"" % args.get("id"),
-            "find_element_by_name": lambda: u"寻找指定页面元素: \"%s\"" % args.get("name"),
-            "assert_screen":u"图像对比断言",
-            "assert_custom": u"自定义断言.",
-            "assert_exist": u"断言页面元素存在.",
-            "click": u"点击找到的页面元素.",
-            "send_keys": u"传送文本\"%s\"到选中文本框." % (args.get("text", "")),
-            "get": lambda: u"访问网络地址: %s" % (url),
-            "switch_to_last_window": u"切换到上一个标签页.",
-            "switch_to_latest_window": u"切换到最新标签页.",
-            "back": u"后退到上一个页面.",
-            "forward": u"前进到下一个页面.",
-            "snapshot": lambda: (u"截图描述: %s" % args.get("msg")) if args.get("msg") else u"截取当前页面"
+            "find_element_by_xpath": lambda: f"寻找页面元素: \"{args.get('xpath')}\"",
+            "find_element_by_id": lambda: f"寻找页面元素: \"{args.get('id')}\"",
+            "find_element_by_name": lambda: f"寻找页面元素: \"{args.get('name')}\"",
+            "assert_screen": "对比屏幕和图片",
+            "assert_custom": "自定义断言",
+            "assert_exist": "断言页面元素存在",
+            "assert_serial_log": lambda: f"断言串口日志中包含: \"{args.get('pattern')}\"",
+            "click": "点击找到的页面元素",
+            "send_keys": f"向选中文本框输入文本: \"{args.get('text', '')}\"",
+            "get": lambda: f"访问网址: {url}",
+            "switch_to_last_window": "切换到上一个标签页",
+            "switch_to_latest_window": "切换到最新标签页",
+            "back": "后退到上一个页面",
+            "forward": "前进到下一个页面",
+            "snapshot": lambda: f"截图描述: {args.get('msg')}" if args.get('msg') else "截取当前页面",
+            "full_snapshot": lambda: f"长截图描述: {args.get('msg')}" if args.get('msg') else "截取当前完整页面"
         }
 
-        if self.lang == 'zh':
-            desc = desc_zh
+        # 根据语言选择描述
+        desc = desc_zh if self.lang == 'zh' else desc_zh
         ret = desc.get(name)
-        if callable(ret):
-            ret = ret()
-        return ret
-    else:
-        return trans
+        return ret() if callable(ret) else ret
+    return trans
 
 
 def new_translate_code(self, step):
+    """
+    处理代码显示逻辑。
+    核心改动：增加了一个过滤器，当函数是 assert_custom 或 assert_serial_log 时，
+    会主动移除名为 'logs' 的参数，避免其在报告中重复显示。
+    """
+    # 先调用原始的翻译函数获取所有参数
     trans = old_trans_code(self, step)
+
     if trans:
-        for idx, item in enumerate(trans["args"]):
-            if item["key"] == "self":
-                trans["args"].pop(idx)
+        # 准备一个要过滤掉的参数名列表
+        params_to_filter = ["self"]
+
+        # 额外把 'logs' 也加入过滤列表
+        # func_name = step["data"]["name"]
+        # if func_name in ["assert_custom", "assert_serial_log"]:
+        params_to_filter.append("log_msg")
+
+        trans["args"] = [arg for arg in trans["args"] if arg.get("key") not in params_to_filter]
+        
     return trans
 
 def new_translate_info(self, step):
     trace_msg, log_msg = old_trans_info(self, step)
-    if step["tag"] == "function" and not trace_msg:
-        if "logs" in step["data"].get("call_args", {}):
-            log_msg = step["data"]["call_args"]["logs"]
+    if "log" in step["data"]:
+        log_msg = step["data"]["log"]
+    elif step["tag"] == "function" and "log_msg" in step["data"].get("call_args", {}):
+        log_msg = step["data"]["call_args"]["log_msg"]
+
+    if isinstance(log_msg, dict):
+        try:
+            # 尝试将字典格式化为JSON字符串
+            pretty_json = json.dumps(log_msg, indent=4, ensure_ascii=False)
+            log_msg = f"{pretty_json}"
+        except Exception:
+            pass
+
     return trace_msg, log_msg
 
 report.LogToHtml._translate_screen = new_trans_screen

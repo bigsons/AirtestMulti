@@ -371,7 +371,7 @@ class WebChrome(Chrome):
             raise AssertionError("Target element not find.")
         
     @logwrap
-    def assert_custom(self, param, logs, msg=""):
+    def assert_custom(self, param, log_msg, msg=""):
         """
         Assert Custom step execution.
 
@@ -381,9 +381,10 @@ class WebChrome(Chrome):
         Raise:
             AssertionError - if assertion failed.
         """
-        log(logs)
         if not (param) :
-            raise AssertionError("%s Custom step execution failed. Log: \n\n%s" % msg, logs)
+            if isinstance(log_msg, dict):
+                log_msg = json.dumps(log_msg, indent=4, ensure_ascii=False)
+            raise AssertionError("%s Custom step execution failed. Log: \n\n%s" % (msg, log_msg))
         else :
             self._gen_screen_log()
 
@@ -406,7 +407,7 @@ class WebChrome(Chrome):
             result = cal_rgb_confidence(old_screen, new_screen)
         except Exception as e:
             print("Could not compare images, likely due to different sizes. Error: %s" % e)
-            raise AssertionError("%s Screens could not be compared)." % msg)
+            raise AssertionError("%s Screens could not be compared due to different sizes." % msg)
 
         # 检查图片尺寸是否一致
         if old_screen.shape != new_screen.shape:
@@ -416,7 +417,7 @@ class WebChrome(Chrome):
         self._generate_diff_image(old_screen, new_screen)
 
         if result < threshold:
-            raise AssertionError("%s 图片差异过大." % msg, result)
+            raise AssertionError("%s 图片差异过大:%s." % (msg, result))
 
 
     @logwrap
@@ -445,7 +446,7 @@ class WebChrome(Chrome):
         self._generate_diff_image(old_screen, new_screen)
 
         if result < threshold:
-            raise AssertionError("%s 图片差异过大." % msg, result)
+            raise AssertionError("%s 图片差异过大:%s." % (msg, result))
 
     def _generate_diff_image(self, old_screen, new_screen, diff_threshold=10):
         """
@@ -502,6 +503,29 @@ class WebChrome(Chrome):
         png_path = os.path.join(ST.LOG_DIR, png_file_name)
         cv2.imwrite(png_path, comparison_image, [cv2.IMWRITE_PNG_COMPRESSION, 0])
         try_log_screen(comparison_image, png_path)
+
+    @logwrap
+    def assert_serial_log(self, pattern, timeout=1, msg=""):
+        """
+        断言在指定时间内，串口日志中出现了符合指定模式的内容。
+        如果断言失败，会将最近的串口日志作为上下文记录在报告中。
+
+        Args:
+            pattern: 要在日志中搜索的正则表达式模式。
+            timeout: 等待日志出现的最长秒数。
+            msg: 自定义断言失败信息。
+        """
+        found, line = self.check_serial_log(pattern, duration=timeout)
+        
+        if found:
+            # 断言成功，记录找到的行
+            log_data = {"match": True, "line": line, "pattern": pattern}
+            log(log_data,desc="记录串口Log")
+            self._gen_screen_log()
+        else:
+            recent_logs = self.serial_manager.read_log_lines(lines=100) # 获取最近50行
+            self._gen_screen_log()
+            AssertionError(f"{msg} | 未在串口日志中找到表达式: '{recent_logs}'")
 
     @logwrap
     def open_serial(self):
