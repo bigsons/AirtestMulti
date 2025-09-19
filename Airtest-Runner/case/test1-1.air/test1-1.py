@@ -27,9 +27,9 @@ driver.serial_send("rewboot") # 例如发送一个重启命令
 # except AssertionError as e:
 #     print(f"断言失败: {e}")
 logs = {"aaaaa":11111}
-# driver.assert_custom(True,logs,"111.",driver.snapshot())
-# driver.assert_custom(True,logs,"111.","C:\\Users\\Administrator\\Pictures\\1757735395.png")
-# driver.assert_custom(True,setting,"222")
+driver.assert_custom(True,logs,driver.snapshot())
+driver.assert_custom(True,logs,"C:\\Users\\Administrator\\Pictures\\1757735395.png","222")
+driver.assert_custom(True,setting,)
 driver.assert_custom(True,setting,True,"333")
 
 driver.find_element_by_id("pwdTipStr").click()
