@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Archer Self-Test Report</title>
+    <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
+    <style type:="text/css">
+        :root {
+            --bg-color: #1a1a1a;
+            --bg-image: radial-gradient(ellipse 80% 80% at 50% -20%,rgba(100, 100, 220, 0.25), rgba(255,255,255,0));
+            --text-color: #d1d5db;
+            --title-color: #ffffff;
+            --container-bg: rgba(28, 28, 30, 0.7);
+            --inner-container-bg: transparent;
+            --container-border: rgba(255, 255, 255, 0.1);
+            --container-shadow: 0 6px 15px rgba(0,0,0,0.6);
+            --info-block-bg: rgba(40, 40, 42, 0.7);
+            --info-title-color: #e5e7eb;
+            --info-title-border: #7b68ee;
+            --info-span-color: #9370db;
+            --progress-bar-bg: #374151;
+            --table-head-bg: rgba(55, 65, 81, 0.5);
+            --table-row-border: #374151;
+            --table-row-hover-bg: rgba(55, 65, 81, 0.7);
+            --iframe-bg: #1f2937;
+            --iframe-head-bg: #111827;
+            --iframe-head-border: #374151;
+            --button-bg: #7b68ee;
+            --button-text: #ffffff;
+            --select-bg: #374151;
+            --select-border: #4b5563;
+            --footer-text-color: #404040;
+        }
+
+        body.light-mode {
+            --bg-color: #f4f4f4;
+            --bg-image: linear-gradient(to right, #44ADD0, #4ACBD6, #44ADD0);
+            --text-color: #333333;
+            --title-color: #F5F7FA;
+            --container-bg: #F5F7FA;
+            --inner-container-bg: #ffffff;
+            --container-border: #dddddd;
+            --container-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            --info-block-bg: #ffffff; /* Inner blocks are white */
+            --info-title-color: #111827;
+            --info-title-border: #4ACEE1; /* Unified color */
+            --info-span-color: #333333; /* Unified color */
+            --progress-bar-bg: #e5e7eb;
+            --table-head-bg: #f7f7f7;
+            --table-row-border: #e5e7eb;
+            --table-row-hover-bg: #eff6ff;
+            --iframe-bg: #ffffff;
+            --iframe-head-bg: #111827;
+            --iframe-head-border: #374151;
+            --button-bg: #4ACEE1; /* Unified color */
+            --button-text: #ffffff;
+            --select-bg: #ffffff;
+            --select-border: #d1d5db;
+            --footer-text-color: #bbbbbb;
+        }
+
+        body {
+            font-family: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Heiti SC", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            background-image: var(--bg-image);
+            background-size: 100% 150px;
+            background-attachment: fixed;
+            background-repeat: no-repeat;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        .header-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 15px;
+            z-index: 101;
+            position: fixed;
+        }
+        #theme-toggle {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: none;
+            background-color: var(--button-bg);
+            color: var(--button-text);
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        #theme-toggle:hover {
+            opacity: 0.9;
+        }
+        .container {
+            width: 60%;
+            min-width: 500px;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px 0;
+            transition: margin-right 0.5s ease-in-out, width 0.5s ease-in-out;
+        }
+        .footer {
+            text-align: center;
+            padding: 15px 0;
+            margin-top: 30px;
+            font-size: 12px;
+            color: var(--footer-text-color);
+            transition: color 0.3s;
+        }
+        body.iframe-active .container {
+            margin-right: 61%;
+            width: 38%;
+            margin-left: 1%;
+        }
+        .title { 
+            color: var(--title-color); 
+            text-align: center; 
+            font-size: 2.5em; 
+            margin-top: 30px;
+            margin-bottom: 25px; 
+            font-weight: 300;
+            letter-spacing: 2px;
+            position: relative;
+        }
+        .summary, .table { 
+            background-color: var(--container-bg); 
+            border: 1px solid var(--container-border);
+            border-radius: 12px; 
+            padding: 30px; 
+            box-shadow: var(--container-shadow);
+            backdrop-filter: blur(10px); 
+            box-sizing: border-box;
+            transition: background-color 0.3s, border 0.3s, box-shadow 0.3s;
+        }
+        .table { min-height: 680px; }
+        .summary { margin-bottom: 30px; }
+        .summary { margin-top: 80px; }
+        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
+        .info-block, .results-block { 
+            background-color: var(--info-block-bg); 
+            padding: 20px; 
+            border-radius: 6px; 
+            overflow: hidden; 
+            transition: background-color 0.3s; 
+        }
+        .results-block { grid-column: 1 / -1; margin-top: 20px; }
+        .info-title { font-size: 1.2em; color: var(--info-title-color); margin-bottom: 12px; border-left: 3px solid var(--info-title-border); padding-left: 10px; font-weight: 500;}
+        .info-content { font-size: 0.95em; line-height: 1.6; word-break: break-word; }
+        .info-content span { font-weight: bold; color: var(--info-span-color); }
+        .progress-container { margin-top: 10px; }
+        .progress-bar { 
+            background-color: var(--progress-bar-bg); 
+            border-radius: 5px; 
+            overflow: hidden; 
+            position: relative;
+            height: 25px;
+        }
+        .progress { 
+            background-color: #4ACBD6; 
+            color: #1f2937; 
+            text-align: center; 
+            font-weight: bold; 
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 5px; 
+            transition: width 0.5s ease-in-out; 
+            white-space: nowrap;
+        }
+        .table-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .table-title { 
+            text-align: left; 
+            font-size: 1.2em; 
+            color: var(--text-color); 
+            margin: 0; 
+            font-weight: bold; 
+        }
+        #filter-status {
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--select-border);
+            background-color: var(--select-bg);
+            color: var(--text-color);
+            font-size: 14px;
+        }
+        #tab {
+            background: var(--inner-container-bg);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        /* 亮色模式下Head固定 */
+        body.light-mode::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 150px;
+            background: var(--bg-image);
+            z-index: 99;
+        }
+        body.light-mode {
+            background-image: none;
+        }
+        body.light-mode .title {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 100;
+            margin-top: 0;
+            padding-top: 50px;
+            padding-bottom: 25px;
+        }
+        body.light-mode .summary {
+            margin-top: 150px;
+        }
+        body.light-mode::before,
+        body.light-mode .title,
+        .header-controls {
+            transition: all 0.5s ease-in-out;
+        }
+        body.light-mode::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 150px;
+            background: var(--bg-image);
+            z-index: 99;
+        }
+        body.light-mode {
+            background-image: none;
+        }
+        body.light-mode .title {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 100;
+            margin-top: 0;
+            padding-top: 50px;
+            padding-bottom: 25px;
+        }
+        body.light-mode .summary {
+            margin-top: 150px;
+        }
+
+       body.iframe-active.light-mode .title {
+            left: 1%; 
+            width: 38%; 
+        }
+        body.iframe-active .header-controls {
+            right: calc(60% + 20px);
+        }
+        .table-row {
+            border-bottom: none;
+            border-top: none;
+        }
+        #tab {
+            display: block; 
+            gap: 0;
+            background: transparent; 
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .table-row:not(.table-head) {
+            border-radius: 6px;
+            background-color: var(--info-block-bg);
+        }
+        .table-row:not(.table-head) + .table-row:not(.table-head) {
+            margin-top: 5px;
+        }
+        .table-head { background-color: var(--table-head-bg); font-weight: bold; }
+        .table-row { display: flex; border-bottom: 1px solid var(--table-row-border); transition: background-color 0.3s; }
+        .table-row:last-child { border-bottom: none; }
+        .table-row:not(.table-head):hover { background-color: var(--table-row-hover-bg); cursor: pointer; }
+        .table-col { padding: 12px 15px; text-align: left; align-self: center; word-break: break-all; }
+        .table-col.short { flex: 0.5 1 60px; }
+        .table-col.status-col { flex: 0.5 1 80px; }
+        .table-col.case-col { flex: 2 1 150px; }
+        .table-col.desc-col { flex: 4 1 300px; }
+        .success { color: #22c55e; }
+        .failed { color: #ef4444; }
+        .iframe { 
+            position: fixed;
+            top: 0;
+            right: -100%;
+            width: 60%;
+            height: 100%; 
+            box-shadow: -5px 0 15px rgba(0,0,0,0.5); 
+            transition: right 0.5s ease-in-out; 
+            background: var(--iframe-bg); 
+            z-index: 200;
+        }
+        .iframe.show { 
+            right: 0;
+        }
+        .iframe-head { height: 60px; line-height: 60px; text-align: center; color: #fff; background: var(--iframe-head-bg); font-size: 1.2em; border-bottom: 1px solid var(--iframe-head-border); }
+        .iframe-tools { position: absolute; top: 23px; left: -34px; background: white; box-shadow: -2px 2px 5px grey; border-radius: 7px; }
+        .iframe-tools .close, .iframe-tools .open { width: 32px; height: 50px; cursor: pointer; display: block; }
+        .iframe .close { background: url('data:img/jpg;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgEAYAAAAj6qa3AAAABGdBTUEAALGPC/xhBQAAAAFzUkdC AK9OHOkAAAAgY0hSTQAAeiYAAICEAAD6AAAAgOgAAHUwAADqYAAAOpgAABdwnLpRPAAAAAZiS0dE AAAAAAAA+UO7fwAAAAlwSFlzAAAASAAAAEgARslrPgAAA6JJREFUaN7tmc9LG0EUx99sE+xB/wBJ vQhCPLTojAr+Af6iKJSSVhD0EhNC1HgWxIt/gBA0MaQXqQoV2gb/Ag+Krs4KHlSMN38EFRGkIupm Xw/reEgIu9lsNi34vQTcie99P/NmZt8E4FWvKkpt6bZ0W/rdu0rnYVdektmBNEETNPHlS3Ytu5Zd Oz6mC3SBLgwMVNo4o4wy2tmp1qv1av3REVthK2xldNS2ANRN3dT99SvVqEa1pyfGGGMMkcpUprKq VgqEME436SbdvL8XebEAC7CAppkFQYyMwwM8wMP376SVtJJWlyt3HMYwhrFsFg7hEA6HhpRBZVAZ XFwst3GcwzmcS6VImIRJ+O3b/IHAgCFCB3RARyTCfdzHfdGoIQCxlkSpQwxiEKuqMkoMt3Ebt1UV kpCE5MCAElACSuDHD7uMN280bzRvdHcTiUhE+vWroPHcvJ4nCBuxERvfv9+t2a3ZrTk4EM/z9gC5 QW6QG05PyR7ZI3uitJ+ejAK9VEgTNEHT0pJdS0PMeLHGRQWQEAmR0OhorvGXvI3+T8tYy1jL2OfP uI7ruL68rP/V7TZL3urSMF3qBYwDBw48HOacc85jsULDDQE4DcIp40UDKDcIp41bBmA3CDJDZsjM 1ZXTxksG8JIHZZRRnw93cAd3lpYKHZd5IMSpIYMMsqqaNh6EIAQ1DeqgDuoCAd7De3jPt29W8y8Z gJDVijAtm2Y8V2/syu9863zrfOvgwOPz+Dy+/X04gRM4+fTpOYz1OGUybjsA20GU2biQ6WaoWGnV WrVW/ecPzuIszmazxX4f/ehHv6ZhBCMYub0tV5627QFCdIJO0ImuLuiDPuj7/dv05lYIRJl7DdsA 2G3cKRAlA7DapIjjTJR60cenTU2X5T1AzLjVJgXmYR7mR0akcWlcGu/v1x8633QVXQGWS91gV69U 02UaQLmM58ppEIYAnDJeKRCFr8QqZNxpEAWvxNRr9Vq9TqeLblLiEId4MMgVrnAlmbRqPI9riU0X 3uEd3n34kHszlPdqehY9i55Fb29re2t7a3svL4mXeIn340d9Rkl+xYgZX4VVWB0Z0Y0nEnYZF8pk MplMZn/fc+O58dyYf8UmLuIirqkppV1pV9p//sx7bhSYpmiKpoaHyQW5IBfxuH58SZJT7+qFZLg0 QhCC0OQk93M/909PlxxQgBC/B+j38KGQU4aNQOj5PD7qn5OTZQuoB/B6K238f8nrVf+6/gLOvYPg ZwC/JwAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAxOS0wMy0wNlQyMDozMTo1NCswODowMMqAOUgAAAAl dEVYdGRhdGU6bW9kaWZ5ADIwMTktMDMtMDZUMjA6MzE6NTQrMDg6MDC73YH0AAAASHRFWHRzdmc6 YmFzZS11cmkAZmlsZTovLy9ob21lL2FkbWluL2ljb24tZm9udC90bXAvaWNvbl9jOHk0dXZzNXd0 Zy9DbG9zZS5zdmfc199nAAAAAElFTkSuQmCC') no-repeat; background-size: 20px; background-position: center; border-bottom: solid 2px #e5e5e5; }
+        .iframe .open { background: url("data:img/jpg;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgEAYAAAAj6qa3AAAABGdBTUEAALGPC/xhBQAAAAFzUkdC AK7OHOkAAAAgY0hSTQAAeiYAAICEAAD6AAAAgOgAAHUwAADqYAAAOpgAABdwnLpRPAAAAAZiS0dE AAAAAAAA+UO7fwAAAAlwSFlzAAAASAAAAEgARslrPgAABS5JREFUaN7tmGtIU28cx3+/s0tFGyEW SLfJ0F4Yk3YttNUY5prBoMsha1EUQoUZESW9KIXKYWiZQhR7UfYiRgmZkBaGLCuTaucsR6RiVxLp It1cLJjn/P4vxurf3785by3Rz5uxZ8/vec73s+fsec4Appjir0Qn08l0so0bDdcN1w3X1erxmoeJ d9DBwGqsxup586iYiqnY69WWa8u15SrVpBHwKwsXMipGxahu3TKyRtbIJiVNMgEAUAqlUJqaKr4Q X4gvGhuN3cZuY3di4uQR8AsajaAUlIKyoSEzMTMxM1GpnGQCANCKVrSaTCF3yB1y37yZXpZell42 c+akEfBDhAtd6MrIkG6Xbpdur61NqUqpSqmaNm3CCdDe197X3k9J0ev0Or2OZUkggYSsrJhF2NCG tlWrZvXO6p3V6/GspJW0kqTSoeqG7DDWGBIMCYaEzExSk5rUTicchINw0G6HAiiAguRkQEBAAKzE SqwcwQT1UA/1a9cGpUFpUFpdHWncujXyKooDxI1XUJZlWZaVSF6GXoZehjZvph20g3YcOgQlUAIl aWl/QjYAANRADdS43ZyaU3PqXbsijUTjJkC3RbdFt8VsBic4wXn2LB7Gw3h48eI/FngQyEY2slVU 8C7exbv27x8zAZF7Viaj1bSaVp84gb3Yi7379gEHHHA4bitsdBw7xnEcx3FFRSO+QI1Go9FoEhLk drldbq+rgyZogiazOd7RYoVUpCJVYeGwd4Eld5bcWXJnzhy5XC6Xy5ubJ1rwKLgMl+Gy5OSYBaRd SbuSdkWhYD4xn5hP9fWRVo0m3kFGxsWLXCFXyBUWFMQsYPrS6UunLz1zBo/iUTxqNMY7wrBZA2tg TW2twqfwKXx5eZFGURzyHGDYa9hr2Lt+Pa2jdbQuup9ONBobv8z+MvvL7E2bOOSQw/7+6CeSwUpM XaYuU9f8+aIgCqJw4wY8gAfwYMaMeEcZHl6v7JrsmuyawxHIDmQHsr9//2+PQVdAv7xf3i8vKcEq rMKqhIRRX4se9KAnimyPb95AGZRBWVcX8cQT//o1etCDnmCQLtAFuhAKQRIkQZJGg3a0oz0nJ+Z5 jsNxON7aGuoL9YX6HA5uAbeAWxAKDdZ9gIDIc/aiRUKP0CP0OJ3DzUnN1EzNT55AMRRDcUMDetGL 3qamcGo4NZza0hJwB9wB97dvYAUrWP9ngHRIh3QA/SX9Jf2l6IFlaAF0m27Tbb9fUAgKQZGT8xSf 4lMMBoeqGyBAPC+eF88XFWEd1mGdRPL78nCYrtJVuurxkItc5Dp3zq/wK/yK1tYBXXnggR+uzhgw gxnM7e2iX/SLfputbUXbirYVnz/HWv5DgDZDm6HNmDs3cqLLzY0IGKwsug0eOMCreBWv6ugYh2i/ h4CAnj8XH4oPxYdZWY9PPz79+PSHD8Md5ocAJp/JZ/Jzc2E37Ibd//rm8yEf8oNB2kk7aWdeHh/m w3z48uU/Hjiau5zKqby7W7AIFsGSldWGbdiGPT0jHe/nOeAUnIJTP+95ukt36W5np8iKrMiaTHEP XkEVVPHuHXOPucfciwZ/9Wq04zLRH73IW50usrQ6OiTbJNsk2ywWv9Kv9Cvb2+MWvJIqqfLjR9gA G2BDdrbviO+I70hn51iNLxUcgkNwWCy4HJfj8mfPoAVaoMVqfVTzqOZRzdu38QoOJ+EknPz6lelj +pg+u9333vfe9z4QGPN59KX6Un2p1x5rP3bzvbM+P9lp9uj26PbY7WOfqQpppiI/AOjmiKrfUvK NAAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAxOS0wMy0wNlQyMDozMTo1NCswODowMMqAOUgAAAAldEVY dGRhdGU6bW9kaWZ5ADIwMTktMDMtMDZUMjA6MzE6NTQrMDg6MDC73YH0AAAASHRFWHRzdmc6YmFz ZS11cmkAZmlsZTovLy9ob21lL2FkbWluL2ljb24tZm9udC90bXAvaWNvbl9jOHk0dXZzNXd0Zy9z aGFyZS5zdmftz7m3AAAAAElFTkSuQmCC") no-repeat; background-size: 20px; background-position: center; }
+        iframe { width: 100%; height: calc(100% - 60px); border: none; }
+        
+    </style>
+</head>
+<body class="light-mode"> <!-- 默认浅色模式，改这里切换 -->
+    <div class="container">
+        <div class="header-controls">
+            <button id="theme-toggle">Light Mode</button>
+        </div>
+        <h1 class="title">TP-Link自动化自测报告</h1>
+        
+        <div class="summary">
+            <div class="info-grid">
+                <div class="info-block">
+                    <div class="info-title">机型信息</div>
+                    <div class="info-content">
+                        样机名称: <span>{{ data.model_name or 'N/A' }}</span><br>
+                        软件版本: <span>{{ data.software_version or 'N/A' }}</span>
+                    </div>
+                </div>
+                <div class="info-block">
+                    <div class="info-title">执行概览</div>
+                    <div class="info-content">
+                        开始时间: <span>{{ data.start_all }}</span><br>
+                        总耗时: <span>{{ data.time }} 秒</span>
+                    </div>
+                </div>
+            </div>
+            <div class="results-block">
+                <div class="info-title">测试结果</div>
+                <div class="info-content">
+                    成功率: <span>{{ data.success }}/{{ data.count }}</span>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress" style="width: {{ data.success * 100 / (data.count if data.count > 0 else 1) }}%;">
+                                <span>{{ '%.2f' % (data.success * 100 / (data.count if data.count > 0 else 1)) }}%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="table">
+            <div class="table-header">
+                <div class="table-title">用例列表</div>
+                <div class="table-controls">
+                    <select id="filter-status">
+                        <option value="all">All</option>
+                        <option value="成功">Success</option>
+                        <option value="失败">Failed</option>
+                    </select>
+                </div>
+            </div>
+            <div id="tab">
+                <div class="table-row table-head">
+                    <div class="table-col short">序号</div>
+                    <div class="table-col status-col">状态</div>
+                    <div class="table-col case-col">用例</div>
+                    <div class="table-col desc-col">脚本描述</div>
+                </div>
+                {% set ns = namespace(found=0) %}
+                {% for dat in data.result %}
+                    {% for dev, item in dat.tests.items() %}
+                        <div class="table-row" data-path="{{ item.path }}">
+                            {% set ns.found = ns.found + 1 %}
+                            <div class="table-col short">{{ ns.found }}</div>
+                            <div class="table-col status-col {{'success' if item.status==0 else 'failed'}}">
+                                {{"成功" if item.status==0 else "失败"}}
+                            </div>
+                            <div class="table-col case-col">{{ dat.script }}</div>
+                            <div class="table-col desc-col">{{ dat.description }}</div>
+                        </div>
+                    {% endfor %}
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="footer">
+            研发自动化自测工具 | Author: pengshaojie
+        </div>
+    </div>
+
+    <div class="iframe">
+        <div class="iframe-tools">
+            <div class="close" title="关闭"></div>
+            <a class="open" href='.' target='_blank' title="在新标签页打开"></a>
+        </div>
+        <div class="iframe-head"></div>
+        <iframe src='about:blank'></iframe>
+    </div>
+
+    <script type="text/javascript">
+        $(document).ready(function(){
+            // Table filtering logic
+            $('#filter-status').change(function() {
+                var selectedStatus = $(this).children('option:selected').val();
+                $('#tab .table-row').each(function() {
+                    if ($(this).hasClass('table-head')) {
+                        $(this).show();
+                        return;
+                    }
+                    var rowStatus = $(this).children('.status-col').text().trim();
+                    if (selectedStatus === 'all' || rowStatus === selectedStatus) {
+                        $(this).show();
+                    } else {
+                        $(this).hide();
+                    }
+                });
+            });
+        });
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const rows = document.querySelectorAll('.table-row[data-path]');
+            const iframeContainer = document.querySelector('.iframe');
+            const iframeHead = document.querySelector('.iframe-head');
+            const iframeElement = iframeContainer.querySelector('iframe');
+            const openLink = document.querySelector('.iframe .open');
+            const closeBtn = document.querySelector('.iframe .close');
+            const body = document.body;
+            const themeToggleBtn = document.getElementById('theme-toggle');
+
+            // Iframe logic
+            rows.forEach(row => {
+                row.addEventListener('click', function() {
+                    const path = this.dataset.path;
+                    if (path && path !== 'null' && path.trim() !== '') {
+                        const caseName = this.querySelector('.table-col.case-col').innerText;
+                        iframeHead.innerText = `用例详情: ${caseName}`;
+                        iframeElement.setAttribute('src', path);
+                        openLink.setAttribute('href', path);
+                        iframeContainer.classList.add('show');
+                        body.classList.add('iframe-active');
+                    }
+                });
+            });
+
+            closeBtn.addEventListener('click', function() {
+                iframeContainer.classList.remove('show');
+                body.classList.remove('iframe-active');
+                iframeElement.setAttribute('src', 'about:blank');
+            });
+
+            // Theme toggling logic
+            const currentTheme = localStorage.getItem('theme');
+            if (currentTheme) {
+                body.classList.add(currentTheme);
+                if (currentTheme === 'light-mode') {
+                    themeToggleBtn.textContent = 'Dark Mode';
+                }
+            }
+
+            themeToggleBtn.addEventListener('click', function() {
+                body.classList.toggle('light-mode');
+                let theme = 'dark-mode';
+                if (body.classList.contains('light-mode')) {
+                    themeToggleBtn.textContent = 'Dark Mode';
+                    theme = 'light-mode';
+                } else {
+                    themeToggleBtn.textContent = 'Light Mode';
+                }
+                localStorage.setItem('theme', theme);
+            });
+        });
+    </script>
+</body>
+</html>
