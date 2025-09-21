@@ -98,10 +98,12 @@ def run_one_report(case, dev, log_base_dir):
     try:
         if os.path.isfile(log_txt):
             report_path = os.path.join(log_dir, 'log.html')
+            static_source_path = os.path.join(os.getcwd(), "source")
             cmd = [
                 "airtest", "report", case_path,
                 "--log_root", log_dir,
                 "--outfile", report_path,
+                "--static_root", static_source_path,
                 "--lang", "zh",
                 "--plugin", "tp_airtest_selenium.report"
             ]

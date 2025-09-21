@@ -69,13 +69,9 @@ def try_log_screen(screen=None, filename=None ):
     if screen is None:
         screen = G.DEVICE.snapshot()
     if not filename:
-        filename = "%(time)d.jpg" % {'time': time.time() * 1000}
-        filepath = os.path.join(ST.LOG_DIR, filename)
-        aircv.imwrite(filepath, screen, ST.SNAPSHOT_QUALITY)
+        name = "%(time)d.jpg" % {'time': time.time() * 1000}
+        filename = os.path.join(ST.LOG_DIR, name)
+    if not os.path.isfile(filename):
+        aircv.imwrite(filename, screen, ST.SNAPSHOT_QUALITY)
     return {"screen": filename, "resolution": aircv.get_resolution(screen)}
 
-if __name__ == "__main__":
-    from airtest.core.api import connect_device
-    from airtest.core.error import AdbError, InstallMultipleError
-    dev = connect_device("android://10.252.60.147:5039/AAQKYTY9MVRGOFIV")
-    dev.install_multiple_app("E://windows//Test.apk")

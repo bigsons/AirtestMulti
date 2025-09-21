@@ -5,7 +5,7 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.by import By
 from airtest.core.settings import Settings as ST
-from airtest.core.helper import logwrap, log
+from airtest.core.helper import logwrap, log, set_step_log
 from airtest import aircv
 from airtest.core.cv import Template
 from tp_airtest_selenium.utils.airtest_api import loop_find, try_log_screen
@@ -13,15 +13,21 @@ from tp_airtest_selenium.exceptions import IsNotTemplateError
 from airtest.aircv import get_resolution
 from pynput.mouse import Controller, Button
 from airtest.core.error import TargetNotFoundError
-from airtest.aircv.cal_confidence import cal_rgb_confidence, cal_ccoeff_confidence
+from airtest.aircv.cal_confidence import cal_rgb_confidence
+from .utils.serial_utils import SerialManager
+from .utils.network_utils import WifiManager, get_ip_address, ping
 import selenium
 import os
 import time
 import sys
-
+import numpy as np
 import json
-from .utils.serial_utils import SerialManager
-from .utils.network_utils import WifiManager, get_ip_address, ping
+import cv2
+
+from airtest import aircv
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.actions.wheel_input import ScrollOrigin
 
 class WebChrome(Chrome):
 
@@ -371,7 +377,7 @@ class WebChrome(Chrome):
             raise AssertionError("Target element not find.")
         
     @logwrap
-    def assert_custom(self, param, log_msg, msg=""):
+    def assert_custom(self, param, log_msg=None, snap=None, msg=" "):
         """
         Assert Custom step execution.
 
@@ -381,15 +387,25 @@ class WebChrome(Chrome):
         Raise:
             AssertionError - if assertion failed.
         """
+        if isinstance(snap, dict):
+            snapshot_path = os.path.join(ST.LOG_DIR, snap["screen"])
+            screen = aircv.imread(snapshot_path,)
+            try_log_screen(screen,snapshot_path)
+        elif isinstance(snap, str):
+            screen = aircv.imread(snap)
+            try_log_screen(screen,snap)
+        elif snap == True:
+            self._gen_screen_log()
+
         if not (param) :
             if isinstance(log_msg, dict):
                 log_msg = json.dumps(log_msg, indent=4, ensure_ascii=False)
             raise AssertionError("%s Custom step execution failed. Log: \n\n%s" % (msg, log_msg))
         else :
-            self._gen_screen_log()
+            pass
 
     @logwrap
-    def assert_screen(self, old_screen_path, threshold=0.9, msg=""):
+    def assert_screen(self, old_screen_path, threshold=0.9, msg=" "):
         # 1. Take new screenshot
         new_screen = self.screenshot()
         self._gen_screen_log()
@@ -400,9 +416,6 @@ class WebChrome(Chrome):
             raise IOError("Failed to read old screen image at path: %s. Error: %s" % (old_screen_path, e))
 
         # 3. Compare them using the correct function: aircv.cal_rgb_confidence
-        #    注意: aircv.cal_rgb_confidence 要求两张图片尺寸完全一致
-        #    在Web自动化场景中，只要浏览器窗口大小不变，截图尺寸就是一致的
-        #
         try:
             result = cal_rgb_confidence(old_screen, new_screen)
         except Exception as e:
@@ -429,9 +442,6 @@ class WebChrome(Chrome):
             raise IOError("Failed to read old screen image at path: %s. Error: %s" % (old_screen_path, e))
 
         # 3. Compare them using the correct function: aircv.cal_rgb_confidence
-        #    注意: aircv.cal_rgb_confidence 要求两张图片尺寸完全一致
-        #    在Web自动化场景中，只要浏览器窗口大小不变，截图尺寸就是一致的
-        #
         try:
             result = cal_rgb_confidence(old_screen, new_screen)
         except Exception as e:
@@ -455,9 +465,6 @@ class WebChrome(Chrome):
         diff_threshold: 阈值越小越精确
         Returns the filename of the saved comparison image.
         """
-        import cv2
-        import numpy as np
-
         # 轻微高斯模糊减少噪点
         old_gray = cv2.cvtColor(old_screen, cv2.COLOR_BGR2GRAY)
         new_gray = cv2.cvtColor(new_screen, cv2.COLOR_BGR2GRAY)
@@ -505,7 +512,7 @@ class WebChrome(Chrome):
         try_log_screen(comparison_image, png_path)
 
     @logwrap
-    def assert_serial_log(self, pattern, timeout=1, msg=""):
+    def assert_serial(self, pattern, timeout=10, msg=""):
         """
         断言在指定时间内，串口日志中出现了符合指定模式的内容。
         如果断言失败，会将最近的串口日志作为上下文记录在报告中。
@@ -520,10 +527,10 @@ class WebChrome(Chrome):
         if found:
             # 断言成功，记录找到的行
             log_data = {"match": True, "line": line, "pattern": pattern}
-            log(log_data,desc="记录串口Log")
+            set_step_log(f"找到参数\'{pattern}\' \n {log_data}")
             self._gen_screen_log()
         else:
-            recent_logs = self.serial_manager.read_log_lines(lines=100) # 获取最近50行
+            recent_logs = self.serial_manager.read_log_lines(lines=100) # 获取最近100行
             self._gen_screen_log()
             AssertionError(f"{msg} | 未在串口日志中找到表达式: '{recent_logs}'")
 
@@ -539,7 +546,7 @@ class WebChrome(Chrome):
     @logwrap
     def serial_login(self, username="root",password=None, timeout=10):
         """
-        登录OpenWrt设备串口.
+        登录设备串口.
         :param username: 登录用户名, 默认为'root'.
         :param timeout: 等待登录成功的超时时间.
         :return: True表示登录成功, False表示失败.
@@ -565,24 +572,32 @@ class WebChrome(Chrome):
     def serial_send(self, command):
         """向串口发送命令"""
         if self.serial_manager:
+            set_step_log("发送："+ command)
             self.serial_manager.send_cmd(command)
-    
+        else:
+            set_step_log("串口未打卡跳过发送"+ command)
+
     @logwrap
     def serial_get(self, lines=None, duration=None):
-        """获取串口日志"""
+        """
+        获取历史n行串口log或者接下来n秒串口日志
+        """
         if self.serial_manager:
-            if duration:
-                return self.serial_manager.read_log_duration(duration)
-            elif lines:
-                return self.serial_manager.read_log_lines(lines)
+            logs =  self.serial_manager.get_serial_log(lines,duration)
+            set_step_log(logs)
+            return logs
         return []
 
     @logwrap
-    def check_serial_log(self, pattern, lines=None, duration=None):
+    def serial_find(self, pattern, lines=None, duration=None):
         """检查串口日志中是否包含指定内容"""
         if self.serial_manager:
-            return self.serial_manager.search_log(pattern, lines, duration)
-        return False, None
+            ret,logs = self.serial_manager.search_log(pattern, lines, duration)
+            if ret == True:
+                set_step_log(f"找到包含{pattern}的logs:\n {logs}")
+            else:
+                set_step_log(f"未找到包含{pattern}的logs")
+                return False, None
 
     @logwrap
     def connect_wifi(self, ssid, password):
@@ -590,7 +605,7 @@ class WebChrome(Chrome):
         if self.wifi_manager:
             return self.wifi_manager.connect_wifi(ssid, password)
         else:
-            print("未在 setting.json 中配置无线网卡。")
+            set_step_log("未在 setting.json 中配置无线网卡。")
             return False
 
     @logwrap
@@ -611,7 +626,7 @@ class WebChrome(Chrome):
         if interface_name:
             return get_ip_address(interface_name)
         else:
-            print(f"未在 setting.json 中配置 {interface_type} 网卡。")
+            set_step_log(f"未在 setting.json 中配置 {interface_type} 网卡。")
             return None
     
     @logwrap
@@ -651,87 +666,226 @@ class WebChrome(Chrome):
 
     @logwrap
     def snapshot(self, filename=None):
-        self._gen_screen_log(filename=filename)
-
+        return self._gen_screen_log(filename=filename)
+    
     @logwrap
-    def full_snapshot(self, filename=None, msg=""):
+    def full_snapshot(self, filename=None, msg="", quality=90, max_height=12000):
         """
-        通过滚动和拼接来截取完整的网页长图。
-        注意: 此功能可能无法完美处理带有固定/粘性页眉页脚、或动态加载内容的复杂页面。
-        Args:
-            filename: 保存截图的文件名 (可选).
-            msg: 截图描述 (可选).
+        [Modified] Captures a full-page screenshot with a fallback stitching mechanism.
         """
-        log("开始截取长图...")
         if ST.LOG_DIR is None:
             return None
 
-        # 确定文件路径
         if not filename:
-            png_file_name = str(int(time.time())) + '_full.png'
+            png_file_name = f"{int(time.time())}_full.png"
             filepath = os.path.join(ST.LOG_DIR, png_file_name)
         else:
             filepath = os.path.join(ST.LOG_DIR, filename)
 
-        try:
-            # 1. 使用JavaScript获取页面和视口的高度
-            total_height_js = self.execute_script("return document.body.scrollHeight")
-            viewport_height_js = self.execute_script("return window.innerHeight")
+        # Phase 1: Capture images and get the scroll amount
+        # **MODIFICATION**: Now unpacks two return values
+        image_parts, scroll_amount_used = self._scroll_and_capture()
 
-            # 如果页面无需滚动，则调用普通截图
-            if total_height_js <= viewport_height_js:
-                 log("页面无需滚动，将执行普通截图。")
-                 return self._gen_screen_log(filename=filename)
+        if not image_parts:
+            set_step_log("Error: image parts is NULL.")
+            return None
 
-            # 2. 滚动到页面顶部
-            self.execute_script("window.scrollTo(0, 0)")
-            time.sleep(1) # 等待页面稳定
-
-            # 3. 计算截图的实际像素尺寸 (处理Retina/HiDPI屏幕)
-            part = self.screenshot()
-            h, w, _ = part.shape
-            device_pixel_ratio = h / viewport_height_js
-            
-            total_height_pixels = int(total_height_js * device_pixel_ratio)
-
-            # 4. 创建一个足够大的空白画布来拼接所有截图
-            stitched_image = np.zeros((total_height_pixels, w, 3), dtype=np.uint8)
-
-            y_offset = 0
-            while y_offset < total_height_pixels:
-                # 截取当前视口
-                current_screenshot = self.screenshot()
-                current_h, _, _ = current_screenshot.shape
-
-                # 计算需要粘贴的高度，防止最后一张图超出范围
-                paste_h = current_h
-                if y_offset + current_h > total_height_pixels:
-                    paste_h = total_height_pixels - y_offset
-                    current_screenshot = current_screenshot[:paste_h, :]
-
-                # 将截图粘贴到画布的正确位置
-                stitched_image[y_offset : y_offset + paste_h, :] = current_screenshot
+        if len(image_parts) == 1:
+            final_image = image_parts[0]
+        else:
+            # **MODIFICATION**: Implement fallback logic
+            # Step 1: Try the primary (more accurate) anchor-based method first
+            detected_footer_height = self._detect_footer_height(image_parts[0], image_parts[1])
+            final_image = self._stitch_images_with_anchor(image_parts,detected_footer_height)
+            # Step 2: If the primary method fails, use the fallback scroll-based method
+            if final_image is None:
+                final_image = self._stitch_images_by_scroll(image_parts, scroll_amount_used, detected_footer_height)
                 
-                y_offset += paste_h
+            #     # If it fails, dynamically detect the footer
 
-                # 如果已拼接完整，则退出循环
-                if y_offset >= total_height_pixels:
-                    break
-                
-                # 滚动到下一个位置
-                self.execute_script(f"window.scrollTo(0, {int(y_offset / device_pixel_ratio)})")
-                time.sleep(0.5)
-
-            # 5. 保存最终拼接的图片
-            aircv.imwrite(filepath, stitched_image)
-            log(f"长截图已保存至: {filepath}")
-            
-            # 6. 返回报告所需的数据
+        # Phase 4: Save and Log the final result
+        if final_image is not None:
+            cv2.imwrite(filepath, final_image)
+            try_log_screen(final_image, filepath)
             return {"screen": filepath}
+        else:
+            set_step_log("Error: Stitching failed with both primary and fallback methods.")
+        
+    def _scroll_and_capture(self, scroll_amount=0.25, post_scroll_delay=0.8):
+        """
+        [Modified] Scrolls through the page and captures screenshots.
+        
+        Returns:
+            tuple: A tuple containing (list_of_images, scroll_amount_pixels).
+        """
+        self.execute_script("window.scrollTo(0, 0)")
+        time.sleep(0.1)
+
+        viewport_h_js = self.execute_script("return window.innerHeight")
+        viewport_w_pixels = self.get_window_size()['width']
+        
+        saved_screenshot = []
+        last_screenshot_data = None
+        
+        scroll_amount = int(viewport_h_js * scroll_amount)
+        
+        for i in range(30):
+            current_screenshot_data = self.screenshot()
+
+            if last_screenshot_data is not None and np.array_equal(last_screenshot_data, current_screenshot_data):
+                break
+
+            saved_screenshot.append(current_screenshot_data)
+            last_screenshot_data = current_screenshot_data
+            
+            scroll_origin = ScrollOrigin.from_viewport(int(viewport_w_pixels / 2), int(viewport_h_js * 4 / 5))
+            ActionChains(self).scroll_from_origin(scroll_origin, 0, scroll_amount).perform()
+            
+            time.sleep(post_scroll_delay)
+        
+        return saved_screenshot, scroll_amount
+
+    def _stitch_images_with_anchor(self, images, footer_height):
+        """
+        结合页脚检测，使用内容区域最底部、上移5像素的中心区域锚点来拼接图像。
+        """
+        if not images or len(images) < 2:
+            return None
+
+        try:
+            stitched_image = images[0]
+
+            for i in range(len(images) - 1):
+                image_top = stitched_image
+                image_bottom = images[i + 1]
+
+                # 1. 精确计算内容区域的高度
+                h_top, w_top, _ = image_top.shape
+                content_area_h = h_top - footer_height - 3
+                if content_area_h <= 60: # 内容区至少要比锚点+buffer高
+                    print("内容区域过小，跳过锚点拼接。")
+                    return None 
+
+                content_top = image_top[:content_area_h, :]
+                content_bottom = image_bottom[:content_area_h, :]
+                
+                # 2. 从内容区最底部上移几像素，并在此创建锚点
+                
+                anchor_y_end = int(content_area_h * 0.99)
+                anchor_y_start = int(content_area_h * 0.80)
+
+                anchor_x_start = int(w_top * 0.40)
+                anchor_x_end = int(w_top * 0.60)
+                
+                anchor = content_top[anchor_y_start:anchor_y_end, anchor_x_start:anchor_x_end]
+
+                # 3. 在下方图片的内容区域中寻找锚点
+                result = cv2.matchTemplate(content_bottom, anchor, cv2.TM_CCOEFF_NORMED)
+                _, max_val, _, max_loc = cv2.minMaxLoc(result)
+                print(f"V5锚点法匹配度 ({max_val:.4f})。，{max_loc[1]}")
+                # 4. 检查匹配质量
+                if max_val < 0.95:
+                    print(f"V5锚点法匹配度 ({max_val:.4f}) 过低，中止。")
+                    return None
+
+                # 5. 精确拼接
+                top_part_to_keep = image_top[:anchor_y_end, :]
+                match_y_end_in_bottom = max_loc[1] + (anchor_y_end - anchor_y_start)
+                bottom_part_to_keep = image_bottom[match_y_end_in_bottom:, :]
+                stitched_image = np.vstack((top_part_to_keep, bottom_part_to_keep))
+
+            return stitched_image
 
         except Exception as e:
-            log(f"截取长图失败: {e}", "error")
-            return self._gen_screen_log() # 失败时回退到普通截图
+            print(f"V5锚点拼接过程中发生异常: {e}")
+            return None
+
+    def _stitch_images_by_scroll(self, images, scroll_amount, footer_height):
+        """
+        [最终优化版] 通过迭代拼接内容区域并智能处理最后一帧来构建完整页面截图。
+        此版本专门优化了当页面滚动到底部，最后一次滚动高度不足 scroll_amount 的情况。
+        """
+        if not images or len(images) < 2 or scroll_amount <= 0:
+            return None
+
+        try:
+            screenshot_h, _, _ = images[0].shape
+            content_area_h = screenshot_h - footer_height - 5
+            if content_area_h <= 0: return images[-1] # 如果没有内容区域，直接返回最后一张图
+
+            stitched_content = images[0][:content_area_h, :]
+
+            for i in range(1, len(images) - 1):
+                current_content_area = images[i][:content_area_h, :]
+                new_part = current_content_area[content_area_h - scroll_amount:, :]
+                stitched_content = np.vstack((stitched_content, new_part))
+            
+            # 4. [末尾拼接] 特殊处理最后一张图，以应对滚动高度不足的情况
+            last_image = images[-1]
+            last_content_area = last_image[:content_area_h, :]
+            
+            # 从已拼接图像的底部取一个高度为50像素的锚点
+            stitched_h, stitched_w, _ = stitched_content.shape
+            anchor_height = 50
+            # 确保锚点高度不超过已拼接高度
+            if stitched_h < anchor_height:
+                anchor_height = stitched_h
+            
+            anchor = stitched_content[stitched_h - anchor_height:, :]
+
+            # 在最后一张截图的内容区域中寻找这个锚点
+            result = cv2.matchTemplate(last_content_area, anchor, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, max_loc = cv2.minMaxLoc(result)
+
+            final_new_part = None
+            # 如果找到了高可信度的匹配点
+            if max_val > 0.9:
+                # 新增的内容就是匹配点Y坐标 + 锚点高度之后的所有部分
+                print(f"末帧锚点法匹配度 ({max_val:.4f}) 过低。")
+
+                match_y = max_loc[1]
+                final_new_part = last_content_area[match_y + anchor_height:, :]
+            else:
+                final_new_part = last_content_area[content_area_h - scroll_amount:, :]
+
+            # 如果最后的新增部分有内容，则拼接到长图上
+            if final_new_part.shape[0] > 0:
+                stitched_content = np.vstack((stitched_content, final_new_part))
+
+            # 5. 获取并拼接最终的页脚
+            final_footer = images[-1][content_area_h:, :]
+            final_image = np.vstack((stitched_content, final_footer))
+            
+            return final_image
+
+        except Exception as e:
+            print(f"基于滚动的拼接过程中发生异常: {e}")
+            return None
+
+    def _detect_footer_height(self, image1, image2, max_check_height=300):
+        """
+        Dynamically detects the height of a fixed footer by comparing two consecutive images.
+        It compares the images from bottom to top.
+        """
+        h, w, _ = image1.shape
+        # Limit the check to a reasonable height to avoid excessive computation
+        check_height = min(h, max_check_height)
+
+        for y in range(1, check_height):
+            # Row index from the bottom
+            row_y = h - y
+            
+            # Get the pixel rows from both images
+            row1 = image1[row_y, :]
+            row2 = image2[row_y, :]
+            
+            # If the rows are not identical, the footer ends at the previous row
+            if not np.array_equal(row1, row2):
+                footer_height = y - 1
+                return footer_height
+                
+        # If the entire checked area is identical, assume it's all footer
+        return check_height
 
     @logwrap
     def _gen_screen_log(self, element=None, filename=None, ):
@@ -1073,7 +1227,7 @@ class WebRemote(Remote):
 
     @logwrap
     def snapshot(self, filename=None):
-        self._gen_screen_log(filename=filename)
+        return self._gen_screen_log(filename=filename)
 
     @logwrap
     def _gen_screen_log(self, element=None, filename=None, ):

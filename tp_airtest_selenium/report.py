@@ -1,15 +1,19 @@
 # -*- coding: utf-8 -*-
 import os
+import io
 from urllib.parse import unquote
 import airtest.report.report as report
 import json
-
+import jinja2
+from airtest.core.settings import Settings as ST
+from airtest.report.report import nl2br, timefmt
 LOGDIR = "log"
 
 old_trans_screen = report.LogToHtml._translate_screen
 old_trans_desc = report.LogToHtml._translate_desc
 old_trans_code = report.LogToHtml._translate_code
 old_trans_info = report.LogToHtml._translate_info
+old_render = report.LogToHtml._render
 
 screen_func = [
     "find_element_by_xpath", "find_element_by_id", "find_element_by_name", 
@@ -92,7 +96,7 @@ def new_translate_desc(self, step, code):
             "back": u"Back to the last page.",
             "forward": u"Forward to the next page.",
             "snapshot": lambda: (u"Screenshot description: %s" % args.get("msg")) if args.get("msg") else u"Snapshot current page",
-            "full_snapshot": lambda: f"长截图描述: {args.get('msg')}" if args.get('msg') else "截取当前完整页面"
+            "full_snapshot": lambda: f"full snapshot: {args.get('msg')}" if args.get('msg') else "full snapshot"
 
         }
 
@@ -100,9 +104,9 @@ def new_translate_desc(self, step, code):
             "find_element_by_xpath": lambda: f"寻找页面元素: \"{args.get('xpath')}\"",
             "find_element_by_id": lambda: f"寻找页面元素: \"{args.get('id')}\"",
             "find_element_by_name": lambda: f"寻找页面元素: \"{args.get('name')}\"",
-            "assert_screen": "对比屏幕和图片",
-            "assert_custom": "自定义断言",
-            "assert_exist": "断言页面元素存在",
+            "assert_screen": lambda: f"对比截图: {args.get('msg')}" if args.get('msg') else "对比截图和图片",
+            "assert_custom": lambda: f"断言: {args.get('msg')}" if args.get('msg') else "自定义断言",
+            "assert_exist": lambda: f"断言元素: {args.get('msg')}" if args.get('msg') else "断言元素",
             "assert_serial_log": lambda: f"断言串口日志中包含: \"{args.get('pattern')}\"",
             "click": "点击找到的页面元素",
             "send_keys": f"向选中文本框输入文本: \"{args.get('text', '')}\"",
@@ -111,8 +115,8 @@ def new_translate_desc(self, step, code):
             "switch_to_latest_window": "切换到最新标签页",
             "back": "后退到上一个页面",
             "forward": "前进到下一个页面",
-            "snapshot": lambda: f"截图描述: {args.get('msg')}" if args.get('msg') else "截取当前页面",
-            "full_snapshot": lambda: f"长截图描述: {args.get('msg')}" if args.get('msg') else "截取当前完整页面"
+            "snapshot": lambda: f"截图页面: {args.get('msg')}" if args.get('msg') else "截取当前页面",
+            "full_snapshot": lambda: f"截图完整页面: {args.get('msg')}" if args.get('msg') else "截取当前完整页面"
         }
 
         # 根据语言选择描述
@@ -161,6 +165,28 @@ def new_translate_info(self, step):
 
     return trace_msg, log_msg
 
+@staticmethod
+def new_render(template_name, output_file=None, **template_vars):
+    # 到ST.PROJECT_ROOT/source下寻找报告模板
+    template_path = os.path.join(ST.PROJECT_ROOT, "source")
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(template_path),
+        extensions=(),
+        autoescape=True
+    )
+    env.filters['nl2br'] = nl2br
+    env.filters['datetime'] = timefmt
+    template = env.get_template(template_name)
+    html = template.render(**template_vars)
+
+    if output_file:
+        with io.open(output_file, 'w', encoding="utf-8") as f:
+            f.write(html)
+        print(output_file)
+
+    return html
+
+report.LogToHtml._render = new_render
 report.LogToHtml._translate_screen = new_trans_screen
 report.LogToHtml._translate_desc = new_translate_desc
 report.LogToHtml._translate_code = new_translate_code

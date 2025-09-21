@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" /> 
+    <title>Airtest Report {{info.title}}</title>
+    
+    <link href="{{static_root}}css/report.css" rel="stylesheet">
+
+    <script src="{{static_root}}js/jquery-1.10.2.min.js"></script>
+    <script src="{{ static_root }}js/jquery-lang.js" charset="utf-8" type="text/javascript"></script>
+    <script src="{{ static_root }}js/langpack/zh_CN.js" charset="utf-8" type="text/javascript"></script>
+    <script src="{{ static_root }}js/lazyload.js" charset="utf-8" type="text/javascript"></script>
+    
+    <script type="text/javascript">
+      var data = {{data|safe}};
+      var lang = new Lang();
+      lang.init({
+        defaultLang: 'en',
+        currentLang: '{{ lang }}'
+      });
+    </script>
+
+    <style type="text/css">
+        :root {
+            --bg-color: #f0f2f5;
+            --container-bg: #ffffff;
+            --border-color: #e8e8e8;
+            --shadow-color: rgba(0, 0, 0, 0.08);
+            --primary-color: #1890ff;
+            --text-color: #333;
+            --text-color-secondary: #888;
+            --success-color: #52c41a;
+            --fail-color: #f5222d;
+            --code-bg: #fafafa;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+        }
+        
+        .container-fluid {
+            max-width: 1400px;
+            margin: 20px auto;
+            background: var(--container-bg);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px var(--shadow-color);
+            border: 1px solid var(--border-color);
+        }
+
+        h1.title {
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .summary .info1 {
+             border-right: 1px solid var(--border-color);
+        }
+        
+        .summary .info-title {
+            font-weight: 500;
+        }
+
+        #result-desc.green { background-color: var(--success-color) !important; }
+        #result-desc.red { background-color: var(--fail-color) !important; }
+
+        .steps .steps-head {
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .steps .filter.active, .steps .filter:hover {
+            background-color: var(--primary-color);
+            color: #fff;
+            border-color: var(--primary-color);
+        }
+
+        #jump-wrong { color: var(--fail-color); }
+        #step-left .step-list { border: 1px solid var(--border-color); border-radius: 4px; }
+        #step-left .step:hover { background-color: #f7f7f7; }
+        #step-left .step.active { background-color: var(--primary-color) !important; color: #fff; }
+        #step-left .step.active .step_title, 
+        #step-left .step.active .step-time,
+        #step-left .step.active .order { color: #fff; }
+        
+        /* --- 核心：保持流体布局 --- */
+        #step-right .fluid { width: 100%; margin-bottom: 15px; }
+        #step-right .screens .fancybox { width: 100% !important; }
+        #step-right .screens .fancybox .screen { width: 100%; height: auto; }
+        #step-right .traces pre.trace { background-color: var(--code-bg); border: 1px solid var(--border-color); padding: 10px; border-radius: 4px; }
+
+        #step-right .step-status.fail { color: var(--fail-color); }
+        #step-right .step-status.success { color: var(--success-color); }
+    </style>
+  </head>
+
+  <body>
+
+    <div class="container-fluid">
+      <div class="row">
+        
+        <div id="main" class="main col-md-12">
+          <div id="back_multi"></div>
+          <h1 class="title" lang="en">Airtest Report</h1>
+          {% if not steps %}
+          <h2 lang="en" class="empty-report">I am sorry, this log file is empty! </h2>
+          {% endif %}
+          <div class="summary" >
+
+            <div class="show-{{'vertical' if info.desc else 'horizontal'}}">
+              <div class="info info1">
+                <div class="info-left">
+                  <img id='result-img' />
+                </div>
+                <div class="info-right">
+                  <div class="info-title"><span lang='en'>script running report</span>
+                    <label id='result-desc' lang="en"></label>
+                  </div>
+                  <div class="info-content">
+                    <div class='info-sub start'></div>
+                    <div class='info-sub time'></div>
+                  </div>
+                  <div class="info-toal">
+                    <div class="info-step">
+                      <span class="info-name" lang="en">Steps: </span>
+                      <span class="info-value">{{steps|length}}</span>
+                    </div>
+                    <div class="info-time">
+                      <span class="info-name" lang="en">Time: </span>
+                      <span class="info-value duration">xxx</span>
+                    </div>
+                    {% if console %}
+                    <div class="info-console">
+                      <span class="info-name" lang="en">Console: </span>
+                      <img id='show-console' src="{{static_root}}image/console_normal.svg" />
+                      <div id='console' class="mask hide">
+                        <div class="hljs content">
+                          <img id='close-console' src="{{static_root}}image/close.svg" />
+                          <div class="console-content"><pre class="trace">{{console}}</pre></div>
+                        </div>
+                      </div>
+                    </div>
+                    {% endif %}
+                    {% if log %}
+                    <div class="info-log">
+                      <span class="info-name" lang="en">Log: </span>
+                      <span class="info-value log">
+                        <a href="{{log}}" target="_blank" download="log.txt">log.txt <img src="{{static_root}}image/download_log.svg" /></a>
+                      </span>
+                    </div>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+
+              <div class="info info2">
+                <div class="info-left"></div>
+                <div class="info-right">
+                  <div class="info-title"><span lang='en'>Executors</span></div>
+                  <div class="info-content">
+                    <div class="info-execute">
+                      {% if info.author %}
+                        <div class="info-name"><span lang="en">Author:</span> {{info.author}}</div>
+                      {% else %}
+                        <div class="info-name" lang="en">Author: Anonymous</div>
+                      {% endif %}
+                    </div>
+                    <div class="info-execute">
+                      <div class="info-file" title="{{info.path}}">{{info.name}}
+                        <img id="copy_path" class="copy-img" data-value="{{info.path}}" title="copy file path to clipboard" src="{{static_root}}image/copy.svg" />
+                      </div>
+                    </div>
+
+                    {% if info.devices %}
+                    <div class="info-execute">
+                      {% set devices_str=info.devices.values() | join(',') %}
+                      <div class="info-file" title="{{ devices_str }}"><span lang="en">Device: </span> {{info.devices.keys() | join(',') }}
+                        <img class="copy-img" title="copy device string to clipboard" src="{{static_root}}image/copy.svg" data-value="{{ devices_str }}"/>
+                      </div>
+                    </div>
+                    {% endif %}
+
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {% if info.desc %}
+            <div class="info info3">
+              <div class="info-title" lang="en">Description:</div>
+              <div class="airdesc-wrap">
+                  <div class="airdesc">
+                    <div class="desc-content">{{ info.desc|safe }}</div>
+                    <div class="show-more"></div>
+                  </div>
+              </div>
+            </div>
+            {% endif %}
+          </div>
+          <div class="device" id='device'>
+          </div>
+          {{ extra_block|safe }}
+          <div class="gallery">
+            <div class="info-title"><span lang="en">Quick view</span></div>
+            <div class ='placeholder'>
+              <div class="content">
+              </div>
+            </div>
+          </div>
+
+          {% if steps|length  >0 %}
+          
+          <div class="steps">
+            <div class="content">
+              <div class="steps-head">
+                <div class="head-left">
+                  <div class="order" id='order'><span lang="en">order</span></div>
+                  <div class="order" id='duration'><span lang="en">duration</span></div>
+                  <div class="order" id='status'><span lang="en">status</span></div>
+                </div>
+                <div class="head-right">
+                  <span lang="en" class="jump-wrong" id='jump-wrong'>Jump to wrong step</span>
+                  <span lang="en">Filter by:</span>
+                  <span class="filters">
+                    <span lang="en" class="filter" id="all" alt="show all steps">All</span>
+                    <span lang="en" class="filter" id='success' alt="show success steps only">Success</span>
+                    <span lang="en" class="filter" id='fail' alt="show failed steps only">Failed</span>
+                    <span lang="en" class="filter" id="assert" alt="show steps with assertion only">Assert</span>
+                  </span>
+                </div>
+              </div>
+              <div class="steps-content">
+                <div class="step-left" id='step-left'>
+                  <div class="step-list"></div>
+                  <div id="pageTool"></div>
+                </div>
+                <div class="step-right" id='step-right'></div>
+              </div>
+            </div>
+            {% endif %}
+            </div>
+        </div>
+        
+      {% block footer %}
+      <div class="footer">
+      </div> 
+      {% endblock %}
+      </div>
+      <div class="row gif-wrap show">
+          <div class="menu">
+            <div class="pattern pattern1">
+              <div class="minimize">
+                <img title="minimize" src="{{static_root}}image/minimize.svg" />
+              </div>
+              <div class="close">
+                <img title="close" src="{{static_root}}image/close.svg" />
+              </div>
+            </div>
+            <div class="pattern pattern2">
+              <div class="maximize">
+                <img title="maximize" src="{{static_root}}image/maximize.svg" />
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            {% if records %}
+              {% for r in records %}
+                <div align="center" class="embed-responsive embed-responsive-16by9">
+                    <a href="{{ r }}" target="_blank" class="open_in_new_tab">
+                      <img title="open in new tab" src="{{static_root}}image/open_in_new_tab.svg" />
+                    </a>
+                    <video class="embed-responsive-item" controls>
+                        <source src="{{ r }}" type="video/mp4">
+                    </video>
+                </div>
+              {% endfor %}
+            {% endif %}
+          </div>
+        </div>
+        <div id='magnify' class="mask hide">
+        <div class="content">
+        </div>
+      </div>
+    </div>
+
+  <link href="{{static_root}}css/monokai_sublime.min.css" rel="stylesheet">
+  <script src="{{static_root}}js/highlight.min.js"></script>
+  <script type="text/javascript" src="{{static_root}}js/paging.js"></script>
+  <script src="{{static_root}}js/report.js"></script>
+</body>
+</html>
