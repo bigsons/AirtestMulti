@@ -75,3 +75,16 @@ def try_log_screen(screen=None, filename=None ):
         aircv.imwrite(filename, screen, ST.SNAPSHOT_QUALITY)
     return {"screen": filename, "resolution": aircv.get_resolution(screen)}
 
+
+def set_step_log(log_content):
+    """
+    为一个被 @logwrap 装饰的步骤，在它的 log 'data' 中添加一个 'log' 字段。
+    Args:
+        log_content: 任何可以被JSON序列化的内容 (e.g., dict, list, string)。
+    """
+    if not hasattr(G.LOGGER, "_extra_log_data"):
+        G.LOGGER._extra_log_data = {}
+    
+    # 将用户提供的内容存入 'log' 键中
+    print(log_content)
+    G.LOGGER._extra_log_data['log'] = log_content

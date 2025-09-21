@@ -5,10 +5,10 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.by import By
 from airtest.core.settings import Settings as ST
-from airtest.core.helper import logwrap, log, set_step_log
+from airtest.core.helper import logwrap
 from airtest import aircv
 from airtest.core.cv import Template
-from tp_airtest_selenium.utils.airtest_api import loop_find, try_log_screen
+from tp_airtest_selenium.utils.airtest_api import loop_find, try_log_screen, set_step_log
 from tp_airtest_selenium.exceptions import IsNotTemplateError
 from airtest.aircv import get_resolution
 from pynput.mouse import Controller, Button
@@ -58,7 +58,7 @@ class WebChrome(Chrome):
         self.serial_manager = None
         self.wifi_manager = None
         if self.settings.get("serial_port"):
-            self.serial_manager = SerialManager(self.settings["serial_port"])
+            self.serial_manager = SerialManager(self.settings["serial_port"],log_dir=f"{ST.PROJECT_ROOT}\\result")
         if self.settings.get("wireless_adapter"):
             try:
                 self.wifi_manager = WifiManager(self.settings["wireless_adapter"])
@@ -512,7 +512,7 @@ class WebChrome(Chrome):
         try_log_screen(comparison_image, png_path)
 
     @logwrap
-    def assert_serial(self, pattern, timeout=10, msg=""):
+    def serial_wait_pattern(self, pattern, timeout=10, msg=""):
         """
         断言在指定时间内，串口日志中出现了符合指定模式的内容。
         如果断言失败，会将最近的串口日志作为上下文记录在报告中。
@@ -522,26 +522,29 @@ class WebChrome(Chrome):
             timeout: 等待日志出现的最长秒数。
             msg: 自定义断言失败信息。
         """
-        found, line = self.check_serial_log(pattern, duration=timeout)
+        found, line = self.serial_manager.wait_for_log(pattern, duration=timeout)
         
         if found:
             # 断言成功，记录找到的行
             log_data = {"match": True, "line": line, "pattern": pattern}
-            set_step_log(f"找到参数\'{pattern}\' \n {log_data}")
-            self._gen_screen_log()
+            set_step_log(f"找到表达式\'{pattern}\' \n {log_data}")
         else:
-            recent_logs = self.serial_manager.read_log_lines(lines=100) # 获取最近100行
-            self._gen_screen_log()
-            AssertionError(f"{msg} | 未在串口日志中找到表达式: '{recent_logs}'")
+            set_step_log(f"未等到表达式\'{pattern}\', {timeout}s已超时 \n")
 
     @logwrap
-    def open_serial(self):
+    def serial_open(self):
         """打开串口"""
         if self.serial_manager:
             return self.serial_manager.open_serial()
         else:
             print("未在 setting.json 中配置串口。")
             return False
+
+    @logwrap
+    def serial_close(self):
+        """关闭串口"""
+        if self.serial_manager:
+            self.serial_manager.serial_close()
 
     @logwrap
     def serial_login(self, username="root",password=None, timeout=10):
@@ -555,32 +558,27 @@ class WebChrome(Chrome):
             if not password:
                 password = self.get_setting("serial_passwd")
             if not password:
-                print("错误: 未在 setting.json 中找到串口密码 (serial_passwd)。")
+                set_step_log("错误: 未在 setting.json 中找到serial_passwd字段")
                 return False
             return self.serial_manager.serial_login(username, password, timeout)
         else:
             print("串口未初始化。")
             return False
-   
-    @logwrap
-    def serial_close(self):
-        """关闭串口"""
-        if self.serial_manager:
-            self.serial_manager.serial_close()
 
     @logwrap
     def serial_send(self, command):
         """向串口发送命令"""
         if self.serial_manager:
-            set_step_log("发送："+ command)
             self.serial_manager.send_cmd(command)
+            logs = self.serial_manager.get_serial_log(duration=2)
+            set_step_log(logs)
         else:
-            set_step_log("串口未打卡跳过发送"+ command)
+            set_step_log(f"串口未打开，跳过发送：{command}")
 
     @logwrap
     def serial_get(self, lines=None, duration=None):
         """
-        获取历史n行串口log或者接下来n秒串口日志
+        获取历史n行串口log或n秒串口日志
         """
         if self.serial_manager:
             logs =  self.serial_manager.get_serial_log(lines,duration)
@@ -594,43 +592,55 @@ class WebChrome(Chrome):
         if self.serial_manager:
             ret,logs = self.serial_manager.search_log(pattern, lines, duration)
             if ret == True:
-                set_step_log(f"找到包含{pattern}的logs:\n {logs}")
+                set_step_log(f"已找到包含{pattern}的logs:\n {logs}")
             else:
                 set_step_log(f"未找到包含{pattern}的logs")
                 return False, None
 
     @logwrap
-    def connect_wifi(self, ssid, password):
+    def wifi_connect(self, ssid, password):
         """连接到指定的WiFi"""
         if self.wifi_manager:
-            return self.wifi_manager.connect_wifi(ssid, password)
+            ret = self.wifi_manager.connect_wifi(ssid, password)
+            if ret:
+                set_step_log("已连接上无线:"+ssid)
+            else:
+                set_step_log("连接无线失败:"+ssid)
+            return ret
         else:
             set_step_log("未在 setting.json 中配置无线网卡。")
             return False
 
     @logwrap
-    def disconnect_wifi(self):
+    def wifi_disconnect(self):
         """断开WiFi连接"""
         if self.wifi_manager:
-            return self.wifi_manager.disconnect_wifi()
+            ret = self.wifi_manager.disconnect_wifi()
+            if ret:
+                set_step_log("已成功断开无线")
+            else:
+                set_step_log("断开无线失败")
+            return ret
         return False
 
     @logwrap
-    def get_ip(self, interface_type="wired"):
-        """获取有线或无线网卡的IP地址"""
+    def get_ip(self, interface_type=None):
+        """获取无线或有线网卡的IP地址"""
         if interface_type == "wired":
             interface_name = self.settings.get("wired_adapter")
         else:
             interface_name = self.settings.get("wireless_adapter")
             
         if interface_name:
-            return get_ip_address(interface_name)
+            ip = get_ip_address(interface_name)
+            set_step_log("当前IP: "+ip)
+            return ip
         else:
             set_step_log(f"未在 setting.json 中配置 {interface_type} 网卡。")
             return None
     
     @logwrap
-    def ping(self, ip_address, count=4):
+    def ping(self, ip_address, count=5):
         """Ping一个IP地址"""
         return ping(ip_address, count)
 

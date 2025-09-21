@@ -8,13 +8,9 @@ import os
 import threading
 from collections import deque
 from queue import Queue, Empty
-from datetime import datetime
+from datetime import datetime, timedelta
 
 class SerialManager:
-    """
-    一个增强的串口管理类，提供稳定的日志记录、线程安全的读写和健壮的交互功能。
-    新增功能：登录状态检查、自定义日志标记、字符串格式的日志获取。
-    """
     def __init__(self, port, baudrate=115200, timeout=1, log_dir="."):
         """
         初始化SerialManager。
@@ -30,19 +26,18 @@ class SerialManager:
         self.timeout = timeout
         self.ser = None
 
-        # 确保日志目录存在
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         
-        # 创建一个可读性强的日志文件名
         log_filename = f"serial_{port.replace('/', '_').replace('.', '_')}.log"
         self.log_file = os.path.join(log_dir, log_filename)
         
-        self.log_buffer = deque(maxlen=10000)
+        self.log_buffer = deque(maxlen=20000)
         self.read_queue = Queue()
         self.is_reading = False
         self.read_thread = None
         self.write_lock = threading.Lock()
+        self.log_write_lock = threading.Lock() # 新增：日志文件写入锁
 
     def _read_data_thread(self):
         """后台线程，持续读取串口数据，添加时间戳，并存入队列、缓冲区和文件。"""
@@ -50,17 +45,18 @@ class SerialManager:
             try:
                 line_bytes = self.ser.readline()
                 if line_bytes:
-                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                    timestamp = datetime.now()
                     try:
                         line = line_bytes.decode('utf-8', errors='ignore').strip()
                     except UnicodeDecodeError:
                         line = f"[DECODE_ERROR] {line_bytes.hex()}"
                     
                     if line:
-                        log_entry = f"[{timestamp}] {line}"
+                        # 注意：时间戳对象和格式化字符串都存入，便于后续处理
+                        log_entry = (timestamp, f"[{timestamp.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}] {line}")
                         self.log_buffer.append(log_entry)
-                        self.read_queue.put(log_entry)
-                        self._write_to_log_file(log_entry)
+                        self.read_queue.put(log_entry[1])
+                        self._write_to_log_file(log_entry[1])
             except (serial.SerialException, OSError):
                 print(f"从串口 {self.port} 读取数据时出错。停止线程。")
                 self.is_reading = False
@@ -72,9 +68,8 @@ class SerialManager:
             print(f"串口 {self.port} 已经打开。")
             return True
         try:
-            with open(self.log_file, 'a', encoding='utf-8') as f:
-                f.write(f"\n--- Serial Session Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
-            
+            # 使用 with open 和锁确保文件操作安全
+            self._write_to_log_file(f"\n--- Serial Session Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---")
             self.ser = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
             print(f"串口 {self.port} 已成功打开。")
             
@@ -99,8 +94,7 @@ class SerialManager:
         if self.ser and self.ser.is_open:
             self.ser.close()
             print(f"串口 {self.port} 已关闭。")
-            with open(self.log_file, 'a', encoding='utf-8') as f:
-                f.write(f"--- Serial Session Ended at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+            self._write_to_log_file(f"--- Serial Session Ended at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---")
         self.read_thread = None
 
     def _read_from_queue(self, timeout=1):
@@ -109,6 +103,14 @@ class SerialManager:
             return self.read_queue.get(timeout=timeout)
         except Empty:
             return None
+            
+    def _clear_read_queue(self):
+        """清空读取队列中所有待处理的消息。"""
+        while not self.read_queue.empty():
+            try:
+                self.read_queue.get_nowait()
+            except Empty:
+                break
 
     def serial_login(self, username, password, timeout=10):
         """
@@ -118,8 +120,7 @@ class SerialManager:
             if not self.open_serial():
                 return False
         
-        while not self.read_queue.empty():
-            self.read_queue.get_nowait()
+        self._clear_read_queue()
 
         def wait_for_patterns(patterns, search_timeout):
             """通用的等待函数，用于查找匹配的模式。"""
@@ -132,94 +133,106 @@ class SerialManager:
                         return True
             return False
         
-        # 发送一个空命令（回车），正常登录的shell会返回一个提示符
-        self.send_cmd("") 
-        # 等待2秒看是否能匹配到常见的shell提示符
-        if wait_for_patterns(r"(root@|#\s*$)", 2): # 匹配如 'root@OpenWrt:~#' 或行尾的 '#'
+        self.send_cmd_quiet("") 
+        if wait_for_patterns(r"(root@|#\s*$)", 2):
             print("检测到已登录状态。")
             return True
 
-        # 如果未登录，则执行完整的登录流程
         print("未检测到登录状态，开始执行登录流程...")
+        self._clear_read_queue() # 清空队列，准备接收登录提示
+        self.send_cmd_quiet("") # 再次发送回车，确保提示符出现
         if not wait_for_patterns(r"login:|username:", 5):
             print("超时：未检测到登录提示。")
             return False
         
-        self.send_cmd(username)
+        self.send_cmd_quiet(username)
         print(f"检测到登录提示，已输入用户名: {username}")
 
         if not wait_for_patterns(r"password:", 5):
             print("超时：未检测到密码提示。")
             return False
 
-        self.send_cmd(password)
+        self.send_cmd_quiet(password)
         print("检测到密码提示，已输入密码。")
 
-        if wait_for_patterns(r"busybox|root@", 5):
+        if wait_for_patterns(r"busybox|root@|#\s*$", 5): # 增加了更多成功标志
             print("登录成功！")
             return True
 
         print("超时：登录后未检测到成功标志。")
         return False
 
-    def send_cmd(self, command):
-        """线程安全地向串口发送命令，并记录到日志。"""
+    def send_cmd_quiet(self, command):
         if not (self.ser and self.ser.is_open):
-            print("串口未打开，无法发送命令。")
-            return
-            
+            if not self.open_serial():
+                return False
         full_command = command + '\n'
         with self.write_lock:
             self.ser.write(full_command.encode('utf-8'))
-            log_entry = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}] [CMD SENT] -> {command}"
-            self.log_buffer.append(log_entry)
-            self._write_to_log_file(log_entry)
+
+    def send_cmd(self, command):
+        """线程安全地向串口发送命令，并记录到日志。"""
+        if not (self.ser and self.ser.is_open):
+            if not self.open_serial():
+                return False
+        full_command = command + '\n'
+        with self.write_lock:
+            self.ser.write(full_command.encode('utf-8'))
+            timestamp = datetime.now()
+            log_entry_str = f"[{timestamp.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}] [send_cmd]: {command}"
+            log_entry_tuple = (timestamp, log_entry_str)
+            self.log_buffer.append(log_entry_tuple)
+            self._write_to_log_file(log_entry_str)
             print(f"已发送命令: {command}")
-    
-    # --- 新增和修改的日志获取功能 ---
     
     def add_marker_to_log(self, message):
         """
-        **新增功能**：向串口日志文件和内存缓冲区中写入一条自定义的标记信息。
-        这对于在日志中标记测试脚本的关键步骤非常有用。
+        向串口日志文件和内存缓冲区中写入一条自定义的标记信息。
         """
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-        # 使用特殊标记让自定义信息在日志中更显眼
-        log_entry = f"[{timestamp}] [MARKER] --- {message} ---"
+        timestamp = datetime.now()
+        log_entry_str = f"[{timestamp.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}] [MARKER] --- {message} ---"
+        log_entry_tuple = (timestamp, log_entry_str)
         print(f"写入日志标记: {message}")
-        self.log_buffer.append(log_entry)
-        self._write_to_log_file(log_entry)
+        self.log_buffer.append(log_entry_tuple)
+        self._write_to_log_file(log_entry_str)
 
     def get_serial_log(self, lines=None, duration=None):
         """
-        **修改功能**：获取串口日志并以单个字符串的形式返回，每行以'\\n'分隔。
-        可以指定获取最近的行数，或在一段时间内持续收集。
+        获取串口日志并以单个字符串的形式返回，每行以'\\n'分隔。
+        可以指定获取最近的行数，或获取过去一段时间内的日志。
         """
         log_list = []
         if duration:
-            # 内部函数仍然返回列表
             log_list = self._read_log_duration_internal(duration)
         elif lines:
-            # 内部函数仍然返回列表
             log_list = self._read_log_lines_internal(lines)
         
         return "\n".join(log_list)
 
-    # 内部方法，保持返回列表，供 search_log 等高级功能使用
     def _read_log_lines_internal(self, lines=10):
-        """从内存缓冲区读取日志，返回列表。"""
+        """从内存缓冲区读取最近的N行日志，返回列表。"""
         buffer_copy = list(self.log_buffer)
-        return buffer_copy[-lines:]
+        # 从元组中只返回格式化后的字符串
+        return [item[1] for item in buffer_copy[-lines:]]
 
     def _read_log_duration_internal(self, duration=5):
-        """在一段时间内收集日志，返回列表。"""
-        start_time = time.time()
+        """
+        从内存缓冲区中筛选出在过去`duration`秒内记录的所有日志。
+        """
+        now = datetime.now()
+        time_threshold = now - timedelta(seconds=duration)
+        
+        # 从右向左遍历，效率更高
         log_data = []
-        while time.time() - start_time < duration:
-            line = self._read_from_queue(timeout=0.1)
-            if line:
-                log_data.append(line)
-        return log_data
+        buffer_copy = list(self.log_buffer)
+        for timestamp, log_str in reversed(buffer_copy):
+            if timestamp >= time_threshold:
+                log_data.append(log_str)
+            else:
+                # 因为日志是按时间顺序记录的，一旦时间戳早于阈值，就可以停止搜索
+                break
+        
+        return list(reversed(log_data)) # 保持时间顺序
 
     def search_log(self, pattern, lines=None, duration=None):
         """在日志中搜索指定模式。"""
@@ -227,9 +240,10 @@ class SerialManager:
         if lines:
             log_to_search = self._read_log_lines_internal(lines)
         elif duration:
-            log_to_search.extend(self._read_log_duration_internal(duration))
+            log_to_search = self._read_log_duration_internal(duration)
         else:
-            log_to_search = list(self.log_buffer)
+            # 默认搜索整个缓冲区
+            log_to_search = [item[1] for item in list(self.log_buffer)]
 
         for line in reversed(log_to_search):
             if re.search(pattern, line):
@@ -250,9 +264,10 @@ class SerialManager:
         return False, None
 
     def _write_to_log_file(self, line):
-        """将单行日志写入文件。"""
-        try:
-            with open(self.log_file, 'a', encoding='utf-8') as f:
-                f.write(line + '\n')
-        except Exception as e:
-            print(f"写入日志文件失败: {e}")
+        """将单行日志写入文件（线程安全）。"""
+        with self.log_write_lock:
+            try:
+                with open(self.log_file, 'a', encoding='utf-8') as f:
+                    f.write(line + '\n')
+            except Exception as e:
+                print(f"写入日志文件失败: {e}")

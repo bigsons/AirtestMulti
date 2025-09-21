@@ -342,7 +342,7 @@
             width: 100%;
             height: 100%;
             border-radius: 50%;
-            border: 1px solid var(--active-color); 
+            border: 1px solid red; 
             transform: translate(-50%, -50%);
             animation: target-ripple 1.5s infinite ease-out;
         }
@@ -531,7 +531,7 @@
 
             var li = $('<li>').addClass(step_class).data('step-data', step);
             li.html('<img src="' + icon_src + '" class="step-icon">' +
-                      '<span class="step-title">#' + (index + 1) + ' ' + title + '</span>' +
+                      '<span class="step-title">' + title + '</span>' +
                       '<span class="step-time">' + time_str + '</span>');
             step_list.append(li);
         });

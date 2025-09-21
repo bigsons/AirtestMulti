@@ -23,7 +23,12 @@ screen_func = [
 ]
 
 second_screen_func = ["click", "send_keys"]
-other_func = []
+other_func = [
+    # serial_utils functions
+    "serial_open", "serial_close", "serial_login", "serial_send", "serial_get", "serial_find","serial_wait_pattern",
+    # network_utils functions
+    "wifi_connect", "wifi_disconnect", "get_ip", "ping", "check_port"
+]
 
 def new_trans_screen(self, step, code):
     trans = old_trans_screen(self, step, code)
@@ -101,22 +106,45 @@ def new_translate_desc(self, step, code):
         }
 
         desc_zh = {
+            # Selenium Web 操作
             "find_element_by_xpath": lambda: f"寻找页面元素: \"{args.get('xpath')}\"",
             "find_element_by_id": lambda: f"寻找页面元素: \"{args.get('id')}\"",
             "find_element_by_name": lambda: f"寻找页面元素: \"{args.get('name')}\"",
+            "click": "点击找到的页面元素",
+            "send_keys": f"向选中文本框输入文本: \"{args.get('text', '')}\"",
+            "get": lambda: f"访问网址: {url}",
+            "switch_to_previous_tab": "切换到上一个标签页",
+            "switch_to_new_tab": "切换到最新标签页",
+            "back": "后退到上一个页面",
+            "forward": "前进到下一个页面",
+            
+            # Airtest 操作
+            "touch": "点击屏幕坐标",
+            "airtest_touch": "点击屏幕坐标",
+            "snapshot": lambda: f"截图页面: {args.get('msg')}" if args.get('msg') else "截取当前页面",
+            "full_snapshot": lambda: f"截图完整页面: {args.get('msg')}" if args.get('msg') else "截取当前完整页面",
+
+            # 断言操作
             "assert_screen": lambda: f"对比截图: {args.get('msg')}" if args.get('msg') else "对比截图和图片",
             "assert_custom": lambda: f"断言: {args.get('msg')}" if args.get('msg') else "自定义断言",
             "assert_exist": lambda: f"断言元素: {args.get('msg')}" if args.get('msg') else "断言元素",
             "assert_serial_log": lambda: f"断言串口日志中包含: \"{args.get('pattern')}\"",
-            "click": "点击找到的页面元素",
-            "send_keys": f"向选中文本框输入文本: \"{args.get('text', '')}\"",
-            "get": lambda: f"访问网址: {url}",
-            "switch_to_last_window": "切换到上一个标签页",
-            "switch_to_latest_window": "切换到最新标签页",
-            "back": "后退到上一个页面",
-            "forward": "前进到下一个页面",
-            "snapshot": lambda: f"截图页面: {args.get('msg')}" if args.get('msg') else "截取当前页面",
-            "full_snapshot": lambda: f"截图完整页面: {args.get('msg')}" if args.get('msg') else "截取当前完整页面"
+
+            # --- 新增串口工具函数描述 ---
+            "serial_open": "打开串口",
+            "serial_close": "关闭串口",
+            "serial_login": lambda: f"串口登录: \"{args.get('password')}\"",
+            "serial_send": lambda: f"发送命令: {args.get('command')}",
+            "serial_get": lambda: f"获取串口 {args.get('lines')}s/{args.get('duration')}行内Logs",
+            "serial_find": lambda: f"搜索串口: \"{args.get('pattern')}\"正则表达式",
+            "serial_wait_pattern": lambda: f"等待串口日志出现: \"{args.get('pattern')}表达式\"",
+
+            # --- 新增网络工具函数描述 ---
+            "wifi_connect": lambda: f"连接WiFi: {args.get('ssid')}",
+            "wifi_disconnect": "断开WiFi连接",
+            "get_ip": "获取" + ("有线" if args.get('interface_type') else "无线") + "网卡IP",
+            "ping": lambda: f"Ping地址: {args.get('ip_address')}",
+            "check_port": lambda: f"检查端口状态: {args.get('host')}:{args.get('port')}",
         }
 
         # 根据语言选择描述

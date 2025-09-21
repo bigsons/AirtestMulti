@@ -2,8 +2,8 @@
   "model_name": "Archer BE8000",
   "software_version": "阿斯顿法定",
   "img_file": "C:/Users/Administrator/Desktop/AirtestMulti/Airtest-Runner/source",
-  "serial_port": "COM6",
-  "wired_adapter": "本地连接* 1",
+  "serial_port": "",
+  "wired_adapter": "以太网",
   "wireless_adapter": "WLAN",
   "adapter_support_6g": false,
   "selected_scripts": [
