@@ -27,7 +27,10 @@ other_func = [
     # serial_utils functions
     "serial_open", "serial_close", "serial_login", "serial_send", "serial_get", "serial_find","serial_wait_pattern",
     # network_utils functions
-    "wifi_connect", "wifi_disconnect", "get_ip", "ping", "check_port"
+    "wifi_connect", "wifi_disconnect", "get_ip", "ping", "check_port",
+    # ocr functions
+    "ocr_click_text", "ocr_text_exists", "ocr_get_field_value", "ocr_get_text_position",
+    "ocr_find_all_text", "ocr_recognize_all_text"
 ]
 
 def new_trans_screen(self, step, code):
@@ -145,6 +148,14 @@ def new_translate_desc(self, step, code):
             "get_ip": "获取" + ("有线" if args.get('interface_type') else "无线") + "网卡IP",
             "ping": lambda: f"Ping地址: {args.get('ip_address')}",
             "check_port": lambda: f"检查端口状态: {args.get('host')}:{args.get('port')}",
+
+            # --- 新增OCR工具函数描述 ---
+            "ocr_click_text": lambda: f"OCR点击文字: \"{args.get('text')}\"",
+            "ocr_text_exists": lambda: f"OCR检查文字是否存在: \"{args.get('text')}\"",
+            "ocr_get_field_value": lambda: f"OCR获取字段值: \"{args.get('field_name')}\" ({args.get('search_direction', 'right')}方向)",
+            "ocr_get_text_position": lambda: f"OCR获取文字位置: \"{args.get('text')}\"",
+            "ocr_find_all_text": lambda: f"OCR查找所有文字: \"{args.get('text')}\"",
+            "ocr_recognize_all_text": "OCR识别屏幕中的所有文字",
         }
 
         # 根据语言选择描述

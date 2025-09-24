@@ -29,6 +29,20 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
 
 
 # =====================================================================================================================
+#  资源路径处理函数
+# =====================================================================================================================
+def resource_path(relative_path):
+    """ 获取资源的绝对路径，兼容开发环境和PyInstaller打包环境。"""
+    try:
+        # PyInstaller 创建一个临时文件夹，并将路径存储在 _MEIPASS 中
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+
+# =====================================================================================================================
 #  自定义控件与委托
 # =====================================================================================================================
 class NoFocusDelegate(QStyledItemDelegate):
@@ -102,7 +116,7 @@ class OtherSettingsPage(QWidget):
         top_header_layout.addWidget(title_label)
         top_header_layout.addStretch()
         back_button = QPushButton(" 返回主页")
-        back_button.setIcon(QIcon("./source/back.png"))
+        back_button.setIcon(QIcon(resource_path("source/back.png")))
         back_button.setObjectName("subtleTextButton")
         back_button.setToolTip("返回主页")
         back_button.setIconSize(QSize(14, 14))
@@ -117,7 +131,7 @@ class OtherSettingsPage(QWidget):
         second_header_layout.addWidget(self.card_title)
         second_header_layout.addStretch()
         add_button = QPushButton()
-        add_button.setIcon(QIcon("./source/add.png"))
+        add_button.setIcon(QIcon(resource_path("source/add.png")))
         add_button.setObjectName("iconButton")
         add_button.setToolTip("直接添加一个新的参数条目")
         add_button.setFixedSize(28, 28)
@@ -201,7 +215,7 @@ class OtherSettingsPage(QWidget):
             colon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             value_editor = QLineEdit(self._value_to_string(value))
             delete_button = QPushButton()
-            delete_button.setIcon(QIcon("./source/delete.png"))
+            delete_button.setIcon(QIcon(resource_path("source/delete.png")))
             delete_button.setObjectName("iconButton")
             delete_button.setToolTip(f"删除参数 '{key}'")
             delete_button.setFixedSize(28, 28)
@@ -425,10 +439,10 @@ class RunnerThread(QThread):
                     if not self.running:
                         break
                     
-
                     status = task['process'].returncode
                     
                     report_info = self.run_one_report(task['case'], task['dev'], log_base_dir)
+        
                     report_info['status'] = status if status is not None else -1
                     case_results['tests'][task['dev']] = report_info
                 
@@ -462,6 +476,7 @@ class RunnerThread(QThread):
         for dev in devices:
             log_dir = get_log_dir(case, dev, log_base_dir)
             cmd = ["airtest", "run", case_path, "--log", log_dir, "--recording"]
+            
             try:
                 is_windows = (os.name == 'nt')
                 creation_flags = subprocess.CREATE_NO_WINDOW if is_windows else 0
@@ -561,7 +576,7 @@ class RunnerThread(QThread):
 
             template_dir = os.path.join(os.getcwd(), "source")
             env = Environment(loader=FileSystemLoader(template_dir), trim_blocks=True)
-            template = env.get_template('template')
+            template = env.get_template('template.html')
             html = template.render(data=summary)
 
             report_path = os.path.join(self.report_dir, "result.html")
@@ -609,12 +624,10 @@ class SettingsDialog(QDialog):
         primary_hover_color = "#4338CA"
         self.setStyleSheet(f""" 
             QDialog, QLabel, QCheckBox {{ 
-                font-size: 12px;
-                font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; 
+                font-size: 12px; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; 
             }}
             QPushButton {{ 
-                background-color: {primary_color};
-                color: #fff; border: none; 
+                background-color: {primary_color}; color: #fff; border: none; 
                 padding: 6px 12px; 
                 border-radius: 4px; 
                 font-size: 12px; 
@@ -624,8 +637,7 @@ class SettingsDialog(QDialog):
                 background-color: {primary_hover_color};
             }}
             QLineEdit, QComboBox {{ 
-                padding: 4px;
-                font-size: 12px; 
+                padding: 4px; font-size: 12px; 
                 font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; 
             }}
         """ )
@@ -724,11 +736,16 @@ class App(QWidget):
         
         self.setup_ui()
         self.load_settings()
+        
+        # 检查是否需要自动开始
+        if "--autostart" in sys.argv:
+            # 使用QTimer.singleShot确保此操作在主窗口完全加载并显示后执行
+            QTimer.singleShot(100, self.start_runner)
 
     def setup_ui(self):
         """ 初始化主窗口UI。"""
-        self.setWindowTitle("自动化自测工具")
-        self.setWindowIcon(QIcon("./source/logo.png"))
+        self.setWindowTitle("AutoTest")
+        self.setWindowIcon(QIcon(resource_path("source/logo.png")))
         self.setGeometry(100, 100, 960, 680)
         
         self._set_stylesheet()
@@ -765,120 +782,116 @@ class App(QWidget):
         text_color = "#212529"
         secondary_text_color = "#6C757D"
         
+        # 使用 str.replace 确保路径分隔符在QSS中是正确的
+        down_arrow_path = resource_path('source/down-arrow.png').replace('\\', '/')
+        yes_path = resource_path('source/yes.png').replace('\\', '/')
+        
         self.setStyleSheet(f""" 
             QWidget {{
-                color: {text_color};
-                font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+                color: {text_color}; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
                 background-color: {background_color};
             }}
             QFrame#card {{
-                background-color: {card_bg_color};
-                border: 1px solid {border_color};
+                background-color: {card_bg_color}; border: 1px solid {border_color};
                 border-radius: 6px;
             }}
             QLabel {{ font-size: 13px; background-color: transparent; }}
             QCheckBox {{ font-size: 13px; background-color: transparent; }}
             QLabel#titleLabel {{
-                font-size: 20px;
-                font-weight: 600; color: {text_color};
+                font-size: 20px; font-weight: 600; color: {text_color};
                 padding-bottom: 4px;
             }}
             QLabel#cardTitle {{
-                font-size: 14px;
-                font-weight: 600;
+                font-size: 14px; font-weight: 600;
                 color: {text_color};
             }}
             QLineEdit, QComboBox {{
-                background-color: {card_bg_color};
-                border: 1px solid {border_color};
+                background-color: {card_bg_color}; border: 1px solid {border_color};
                 border-radius: 5px; padding: 6px; font-size: 13px;
             }}
             QLineEdit:focus, QComboBox:focus {{ border-color: {primary_color}; }}
             QComboBox::drop-down {{
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
+                subcontrol-origin: padding; subcontrol-position: top right;
                 width: 18px; border-left-width: 1px;
                 border-left-color: {border_color}; border-left-style: solid;
                 border-top-right-radius: 5px; border-bottom-right-radius: 5px;
             }}
-            QComboBox::down-arrow {{ image: url(./source/down-arrow.png); }}
+            QComboBox::down-arrow {{ image: url({down_arrow_path}); }}
             QTableWidget {{
-                background-color: {card_bg_color};
-                border: none;
+                background-color: {card_bg_color}; border: none;
                 gridline-color: {border_color}; font-size: 13px;
                 alternate-background-color: #F8F9FA;
                 selection-background-color: #E6E6FA;
                 selection-color: {text_color};
             }}
             QTableWidget::item {{
-                padding: 9px 10px;
-                border-bottom: 1px solid #F1F3F5;
+                padding: 9px 10px; border-bottom: 1px solid #F1F3F5;
             }}
             QTableWidget::item:selected {{ background-color: #E9EBF8; }}
             QTableWidget::item:focus {{ outline: none; }}
             QHeaderView::section {{
-                background-color: #F8F9FA;
-                padding: 8px; border: none;
+                background-color: #F8F9FA; padding: 8px; border: none;
                 border-bottom: 1px solid {border_color};
                 font-weight: 600; font-size: 13px;
             }}
             QPushButton {{
-                background-color: {primary_color};
-                color: #fff; border: none; padding: 8px 16px;
+                background-color: {primary_color}; color: #fff; border: none; padding: 8px 16px;
                 border-radius: 5px; font-size: 13px;
                 font-weight: 500; min-height: 18px;
             }}
             QPushButton:hover {{ background-color: {primary_hover_color}; }}
             QPushButton:disabled {{
-                background-color: #E9ECEF;
-                color: {secondary_text_color};
+                background-color: #E9ECEF; color: {secondary_text_color};
             }}
             QPushButton#stopButton {{ background-color: {stop_button_color}; }}
             QPushButton#stopButton:hover {{ background-color: {stop_button_hover_color}; }}
             QPushButton#iconButton, QPushButton#iconTextButton {{
-                background-color: transparent;
-                border: none; padding: 4px;
+                background-color: transparent; border: none; padding: 4px;
             }}
             QPushButton#iconTextButton {{
-                color: {secondary_text_color};
-                font-size: 13px;
+                color: {secondary_text_color}; font-size: 13px;
             }}
             QPushButton#iconButton:hover, QPushButton#iconTextButton:hover {{
-                background-color: #E9ECEF;
-                border-radius: 4px;
+                background-color: #E9ECEF; border-radius: 4px;
             }}
             QPushButton#subtleTextButton {{
-                background-color: transparent;
-                color: {secondary_text_color};
+                background-color: transparent; color: {secondary_text_color};
                 font-size: 13px; border: 1px solid {border_color};
                 padding: 3px 8px; border-radius: 4px;
             }}
             QPushButton#subtleTextButton:hover {{
-                background-color: #E9ECEF;
-                border-color: #ADB5BD;
+                background-color: #E9ECEF; border-color: #ADB5BD;
             }}
             QFrame#leftPanel {{
-                background-color: {dark_sidebar_color};
-                border-right: 1px solid #252525;
+                background-color: {dark_sidebar_color}; border-right: 1px solid #252525;
             }}
             QPushButton#sideBarButton {{
-                background-color: transparent;
-                color: #D0D0D0;
+                background-color: transparent; color: #D0D0D0;
                 text-align: center; padding: 10px 5px;
                 font-weight: 600; border: none;
                 border-radius: 5px; margin: 0px 4px;
             }}
             QPushButton#sideBarButton:hover {{ background-color: {dark_sidebar_hover_color}; }}
             QProgressBar {{
-                border: 1px solid {border_color};
-                border-radius: 5px;
+                border: 1px solid {border_color}; border-radius: 5px;
                 text-align: center; background-color: #E9ECEF;
                 color: {secondary_text_color};
                 font-size: 12px;
             }}
             QProgressBar::chunk {{
-                background-color: {primary_color};
-                border-radius: 5px;
+                background-color: {primary_color}; border-radius: 5px;
+            }}
+            QCheckBox::indicator {{
+                width: 12px; height: 12px;
+                border: 1px solid #DEE2E6; 
+                border-radius: 3px;
+                padding: 1px;
+            }}
+            QCheckBox::indicator:hover {{
+                border: 1px solid #4ACBD6;
+            }}
+            QCheckBox::indicator:checked {{
+                image: url({yes_path});
             }}
         """ )
 
@@ -891,13 +904,13 @@ class App(QWidget):
         left_layout.setSpacing(8)
 
         main_page_button = QPushButton("", objectName="sideBarButton")
-        main_page_button.setIcon(QIcon("./source/logo1.png"))
+        main_page_button.setIcon(QIcon(resource_path("source/logo1.png")))
         main_page_button.setIconSize(QSize(28, 28))
         main_page_button.setToolTip("测试主页")
         main_page_button.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(0))
         
-        self.params_icon = QIcon("./source/params-icon.png")
-        self.home_icon = QIcon("./source/home.png")
+        self.params_icon = QIcon(resource_path("source/params-icon.png"))
+        self.home_icon = QIcon(resource_path("source/home.png"))
         self.other_settings_button = QPushButton("", objectName="sideBarButton")
         self.other_settings_button.setIcon(self.params_icon)
         self.other_settings_button.setIconSize(QSize(28, 28))
@@ -905,13 +918,13 @@ class App(QWidget):
         self.other_settings_button.clicked.connect(self.toggle_other_settings_page)
 
         report_button = QPushButton("", objectName="sideBarButton")
-        report_button.setIcon(QIcon("./source/report-icon.png"))
+        report_button.setIcon(QIcon(resource_path("source/report-icon.png")))
         report_button.setIconSize(QSize(28, 28))
         report_button.setToolTip("报告")
         report_button.clicked.connect(self.open_last_report)
 
         settings_button = QPushButton("", objectName="sideBarButton")
-        settings_button.setIcon(QIcon("./source/settings-icon.png"))
+        settings_button.setIcon(QIcon(resource_path("source/settings-icon.png")))
         settings_button.setIconSize(QSize(28, 28))
         settings_button.setToolTip("设置")
         settings_button.clicked.connect(self.open_settings_dialog)
@@ -931,7 +944,7 @@ class App(QWidget):
         right_layout.setContentsMargins(20, 15, 20, 10)
         right_layout.setSpacing(12) 
         
-        title = QLabel("TP-Link 自动化自测工具", objectName="titleLabel")
+        title = QLabel("AutoTest自动化自测工具", objectName="titleLabel")
         right_layout.addWidget(title)
         
         self.model_info_card = QFrame(objectName="card")
@@ -1183,7 +1196,9 @@ class App(QWidget):
             self.scripts_table.setItem(i, 1, QTableWidgetItem(case))
             self.scripts_table.setItem(i, 2, QTableWidgetItem(get_script_description(case)))
         self.scripts_table.resizeColumnToContents(1)
-        
+        if self.scripts_table.columnWidth(1) > 350:
+            self.scripts_table.setColumnWidth(1, 350)
+
         self.other_settings_page.load_other_settings()
 
         for widget in all_widgets:
@@ -1240,8 +1255,27 @@ class App(QWidget):
             self.start_runner()
 
     def start_runner(self):
-        """ 开始执行测试前，先在后台线程中检查串口。"""
+        """ 开始执行测试前，按需检查权限，然后检查串口。"""
         self.save_settings_silently()
+
+        # 检查是否在Windows上，并且是否选择了无线网卡
+        use_wireless = self.wireless_adapter_combo.currentText() not in ["", "不使用"]
+        if os.name == 'nt' and use_wireless:
+            if not is_admin():
+                # 如果不是管理员，则弹窗提权并重新启动
+                self.status_label.setText("需要管理员权限来操作无线网卡，正在提权...")
+                try:
+                    # 为新进程添加 --autostart 参数
+                    params = " ".join(sys.argv) + " --autostart"
+                    ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
+                    # 成功发起提权后，退出当前的无权限实例
+                    sys.exit()
+                except Exception as e:
+                    self.status_label.setText(f"提权失败: {e}")
+                # 停止进一步执行，因为新实例将会启动
+                return
+
+        # 如果权限满足或无需提权，则继续执行原来的逻辑
         selected_port = self.serial_port_combo.currentText()
         self.action_button.setEnabled(False)
         self.status_label.setText(f"正在检查串口 '{selected_port}'...")
@@ -1282,6 +1316,7 @@ class App(QWidget):
         self.timer_label.setText("执行时间: 00:00:00")
         self.timer_label.setVisible(True)
         self.execution_timer.start(1000)
+        
         self.progress_bar.setValue(1)
         
         self.log_label.clear()
@@ -1352,16 +1387,7 @@ def is_admin():
         return False
 
 if __name__ == '__main__':
-    if os.name == 'nt':
-        if is_admin():
-            app = QApplication(sys.argv)
-            window = App()
-            window.show()
-            sys.exit(app.exec())
-        else:
-            ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
-    else:
-        app = QApplication(sys.argv)
-        window = App()
-        window.show()
-        sys.exit(app.exec())
+    app = QApplication(sys.argv)
+    window = App()
+    window.show()
+    sys.exit(app.exec())

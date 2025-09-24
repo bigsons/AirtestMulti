@@ -8,7 +8,7 @@ from airtest.core.settings import Settings as ST
 from airtest.core.helper import logwrap
 from airtest import aircv
 from airtest.core.cv import Template
-from tp_airtest_selenium.utils.airtest_api import loop_find, try_log_screen, set_step_log
+from tp_airtest_selenium.utils.airtest_api import loop_find, try_log_screen, set_step_log, set_step_traceback
 from tp_airtest_selenium.exceptions import IsNotTemplateError
 from airtest.aircv import get_resolution
 from pynput.mouse import Controller, Button
@@ -55,10 +55,14 @@ class WebChrome(Chrome):
                                   "id": self.find_element_by_id,
                                   "name": self.find_element_by_name, "css": self.find_element_by_css_selector}
         self.settings = self._load_settings()
-        self.serial_manager = None
+        # 多串口管理器字典，支持通过index访问
+        self.serial_managers = {}
         self.wifi_manager = None
+
+        # 初始化默认串口（index=0，来自setting.json）
         if self.settings.get("serial_port"):
-            self.serial_manager = SerialManager(self.settings["serial_port"],log_dir=f"{ST.PROJECT_ROOT}\\result")
+            self.serial_managers[0] = SerialManager(self.settings["serial_port"], log_dir=f"{ST.PROJECT_ROOT}\\result")
+
         if self.settings.get("wireless_adapter"):
             try:
                 self.wifi_manager = WifiManager(self.settings["wireless_adapter"])
@@ -512,7 +516,7 @@ class WebChrome(Chrome):
         try_log_screen(comparison_image, png_path)
 
     @logwrap
-    def serial_wait_pattern(self, pattern, timeout=10, msg=""):
+    def serial_wait_pattern(self, pattern, timeout=10,  index=0, msg="",):
         """
         断言在指定时间内，串口日志中出现了符合指定模式的内容。
         如果断言失败，会将最近的串口日志作为上下文记录在报告中。
@@ -521,81 +525,185 @@ class WebChrome(Chrome):
             pattern: 要在日志中搜索的正则表达式模式。
             timeout: 等待日志出现的最长秒数。
             msg: 自定义断言失败信息。
+            index: 串口索引，默认0（使用setting.json中配置的串口）
         """
-        found, line = self.serial_manager.wait_for_log(pattern, duration=timeout)
-        
+        serial_manager = self._get_serial_manager(index)
+        if not serial_manager:
+            set_step_log(f"串口索引 {index} 不可用，跳过等待模式")
+            return False, None
+
+        found, line = serial_manager.wait_for_log(pattern, duration=timeout)
+
         if found:
             # 断言成功，记录找到的行
-            log_data = {"match": True, "line": line, "pattern": pattern}
-            set_step_log(f"找到表达式\'{pattern}\' \n {log_data}")
+            log_data = {"match": True, "line": line, "pattern": pattern, "serial_index": index}
+            set_step_log(f"串口{index}找到表达式\'{pattern}\' \n {log_data}")
         else:
-            set_step_log(f"未等到表达式\'{pattern}\', {timeout}s已超时 \n")
+            set_step_log(f"串口{index}未等到表达式\'{pattern}\', {timeout}s已超时 \n")
+        return found, line
 
     @logwrap
-    def serial_open(self):
-        """打开串口"""
-        if self.serial_manager:
-            return self.serial_manager.open_serial()
-        else:
-            print("未在 setting.json 中配置串口。")
+    def serial_open(self, port, baudrate=115200,index=0, timeout=1):
+        """
+        动态添加串口配置
+        :param index: 串口索引，必须为正整数且不能是0（0为默认串口）
+        :param port: 串口名称，如 'COM3' 或 '/dev/ttyUSB0'
+        :param baudrate: 波特率，默认115200
+        :param timeout: 超时时间，默认1秒
+        :return: 添加成功返回True，失败返回False
+        """
+        if not isinstance(index, int) or index < 0:
+            set_step_traceback(f"错误：串口索引必须为正整数 {index}")
+            return False
+
+        if index in self.serial_managers:
+            print(f"警告：串口索引 {index} 已存在，将替换现有配置")
+            self.serial_managers[index].serial_close()
+
+        try:
+            self.serial_managers[index] = SerialManager(port, baudrate, timeout, log_dir=f"{ST.PROJECT_ROOT}\\result")
+            ret = self.serial_managers[index].serial_open()
+            if ret:
+                set_step_log(f"成功打开串口 {index}: {port} 波特率: {baudrate})")
+            else:
+                set_step_traceback(f"添加串口失败")
+            return ret
+        except Exception as e:
+            set_step_traceback(f"添加串口失败: {e}")
             return False
 
     @logwrap
-    def serial_close(self):
-        """关闭串口"""
-        if self.serial_manager:
-            self.serial_manager.serial_close()
+    def serial_close(self, index):
+        """
+        移除串口配置
+        :param index: 要移除的串口索引
+        :return: 移除成功返回True，失败返回False
+        """
+        if index not in self.serial_managers:
+            set_step_traceback(f"警告：串口索引 {index} 不存在")
+            return False
+
+        try:
+            self.serial_managers[index].serial_close()
+            del self.serial_managers[index]
+            set_step_log(f"成功移除串口 {index}")
+            return True
+        except Exception as e:
+            set_step_traceback(f"移除串口失败: {e}")
+            return False
+
+    def list_serial_ports(self):
+        """
+        列出所有已配置的串口
+        :return: 包含串口信息的字典
+        """
+        ports_info = {}
+        for index, manager in self.serial_managers.items():
+            is_open = manager.ser and manager.ser.is_open if manager else False
+            ports_info[index] = {
+                'port': manager.port if manager else 'Unknown',
+                'baudrate': manager.baudrate if manager else 'Unknown',
+                'is_open': is_open,
+                'is_default': (index == 0)
+            }
+        return ports_info
+
+    def _get_serial_manager(self, index=0):
+        """
+        获取指定索引的串口管理器
+        :param index: 串口索引，默认0
+        :return: SerialManager实例或None
+        """
+        if index not in self.serial_managers:
+            if index == 0:
+                print("错误：默认串口未配置")
+            else:
+                print(f"错误：串口索引 {index} 不存在，请先使用 add_serial_port() 添加")
+            return None
+        return self.serial_managers[index]
 
     @logwrap
-    def serial_login(self, username="root",password=None, timeout=10):
+    def serial_login(self, username="root", password=None,index=0, timeout=10):
         """
         登录设备串口.
         :param username: 登录用户名, 默认为'root'.
+        :param password: 登录密码, 如为None则从setting.json获取serial_passwd
         :param timeout: 等待登录成功的超时时间.
+        :param index: 串口索引，默认0（使用setting.json中配置的串口）
         :return: True表示登录成功, False表示失败.
         """
-        if self.serial_manager:
+        serial_manager = self._get_serial_manager(index)
+        if serial_manager:
             if not password:
                 password = self.get_setting("serial_passwd")
             if not password:
-                set_step_log("错误: 未在 setting.json 中找到serial_passwd字段")
+                set_step_log(f"错误: 未在 setting.json 中找到serial_passwd字段（串口{index}）")
                 return False
-            return self.serial_manager.serial_login(username, password, timeout)
+            result = serial_manager.serial_login(username, password, timeout)
+            if result:
+                set_step_log(f"串口{index}登录成功")
+            else:
+                set_step_log(f"串口{index}登录失败")
+            return result
         else:
-            print("串口未初始化。")
+            set_step_traceback(f"串口索引 {index} 未初始化。")
             return False
 
     @logwrap
-    def serial_send(self, command):
-        """向串口发送命令"""
-        if self.serial_manager:
-            self.serial_manager.send_cmd(command)
-            logs = self.serial_manager.get_serial_log(duration=2)
-            set_step_log(logs)
+    def serial_send(self, command, index=0):
+        """
+        向串口发送命令
+        :param command: 要发送的命令
+        :param index: 串口索引，默认0（使用setting.json中配置的串口）
+        """
+        serial_manager = self._get_serial_manager(index)
+        if serial_manager:
+            serial_manager.send_cmd(command)
+            logs = serial_manager.get_serial_log(duration=2)
+            set_step_log(f"串口{index}发送命令: {command}\n\n{logs}")
         else:
-            set_step_log(f"串口未打开，跳过发送：{command}")
+            set_step_traceback(f"串口未打开，跳过发送：{command}")
 
     @logwrap
-    def serial_get(self, lines=None, duration=None):
+    def serial_get(self, lines=None, duration=None, index=0):
         """
         获取历史n行串口log或n秒串口日志
+        :param lines: 获取最近n行日志
+        :param duration: 获取最近n秒内的日志
+        :param index: 串口索引，默认0（使用setting.json中配置的串口）
+        :return: 日志字符串
         """
-        if self.serial_manager:
-            logs =  self.serial_manager.get_serial_log(lines,duration)
-            set_step_log(logs)
+        serial_manager = self._get_serial_manager(index)
+        if serial_manager:
+            logs = serial_manager.get_serial_log(lines, duration)
+            set_step_log(f"串口{index}日志:\n{logs}")
             return logs
-        return []
+        else:
+            set_step_traceback(f"串口{index}未配置，无法获取Log")
+            return ""
 
     @logwrap
-    def serial_find(self, pattern, lines=None, duration=None):
-        """检查串口日志中是否包含指定内容"""
-        if self.serial_manager:
-            ret,logs = self.serial_manager.search_log(pattern, lines, duration)
+    def serial_find(self, pattern, lines=None, duration=None, index=0):
+        """
+        检查串口日志中是否包含指定内容
+        :param pattern: 要搜索的正则表达式模式
+        :param lines: 搜索最近n行日志
+        :param duration: 搜索最近n秒内的日志
+        :param index: 串口索引，默认0（使用setting.json中配置的串口）
+        :return: (找到状态, 匹配的日志行)
+        """
+        serial_manager = self._get_serial_manager(index)
+        if serial_manager:
+            ret, logs = serial_manager.search_log(pattern, lines, duration)
             if ret == True:
-                set_step_log(f"已找到包含{pattern}的logs:\n {logs}")
+                set_step_log(f"串口{index}已找到包含{pattern}的logs:\n {logs}")
+                return True, logs
             else:
-                set_step_log(f"未找到包含{pattern}的logs")
+                set_step_log(f"串口{index}未找到包含{pattern}的logs")
                 return False, None
+        else:
+            set_step_traceback(f"串口{index}未配置，无法搜索日志")
+            return False, None
 
     @logwrap
     def wifi_connect(self, ssid, password):
@@ -608,7 +716,7 @@ class WebChrome(Chrome):
                 set_step_log("连接无线失败:"+ssid)
             return ret
         else:
-            set_step_log("未在 setting.json 中配置无线网卡。")
+            set_step_traceback("未在 setting.json 中配置无线网卡")
             return False
 
     @logwrap
@@ -619,9 +727,11 @@ class WebChrome(Chrome):
             if ret:
                 set_step_log("已成功断开无线")
             else:
-                set_step_log("断开无线失败")
+                set_step_traceback("断开无线失败")
             return ret
-        return False
+        else:
+            set_step_traceback("未在 setting.json 中配置无线网卡")
+            return False
 
     @logwrap
     def get_ip(self, interface_type=None):
@@ -636,7 +746,7 @@ class WebChrome(Chrome):
             set_step_log("当前IP: "+ip)
             return ip
         else:
-            set_step_log(f"未在 setting.json 中配置 {interface_type} 网卡。")
+            set_step_traceback(f"未在 setting.json 中配置 {interface_type} 网卡。")
             return None
     
     @logwrap

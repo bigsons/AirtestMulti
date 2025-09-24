@@ -37,7 +37,7 @@ class SerialManager:
         self.is_reading = False
         self.read_thread = None
         self.write_lock = threading.Lock()
-        self.log_write_lock = threading.Lock() # 新增：日志文件写入锁
+        self.log_write_lock = threading.Lock() 
 
     def _read_data_thread(self):
         """后台线程，持续读取串口数据，添加时间戳，并存入队列、缓冲区和文件。"""
@@ -52,7 +52,6 @@ class SerialManager:
                         line = f"[DECODE_ERROR] {line_bytes.hex()}"
                     
                     if line:
-                        # 注意：时间戳对象和格式化字符串都存入，便于后续处理
                         log_entry = (timestamp, f"[{timestamp.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}] {line}")
                         self.log_buffer.append(log_entry)
                         self.read_queue.put(log_entry[1])
@@ -62,7 +61,7 @@ class SerialManager:
                 self.is_reading = False
                 break
 
-    def open_serial(self):
+    def serial_open(self):
         """打开串口，并启动后台日志记录线程。日志以追加模式写入。"""
         if self.ser and self.ser.is_open:
             print(f"串口 {self.port} 已经打开。")
@@ -117,7 +116,7 @@ class SerialManager:
         通过串口登录设备。会先检查是否已登录，如果已登录则直接返回True。
         """
         if not (self.ser and self.ser.is_open):
-            if not self.open_serial():
+            if not self.serial_open():
                 return False
         
         self._clear_read_queue()
@@ -135,36 +134,35 @@ class SerialManager:
         
         self.send_cmd_quiet("") 
         if wait_for_patterns(r"(root@|#\s*$)", 2):
-            print("检测到已登录状态。")
             return True
 
-        print("未检测到登录状态，开始执行登录流程...")
-        self._clear_read_queue() # 清空队列，准备接收登录提示
-        self.send_cmd_quiet("") # 再次发送回车，确保提示符出现
+        print("串口未登录，开始执行登录流程...")
+        self._clear_read_queue()
+        self.send_cmd_quiet("")
         if not wait_for_patterns(r"login:|username:", 5):
-            print("超时：未检测到登录提示。")
+            print("超时：未检测到串口登录提示。")
             return False
         
         self.send_cmd_quiet(username)
-        print(f"检测到登录提示，已输入用户名: {username}")
+        print(f"检测到串口登录提示，已输入用户名: {username}")
 
         if not wait_for_patterns(r"password:", 5):
             print("超时：未检测到密码提示。")
             return False
 
         self.send_cmd_quiet(password)
-        print("检测到密码提示，已输入密码。")
+        print("检测到串口输入密码提示，已输入。")
 
-        if wait_for_patterns(r"busybox|root@|#\s*$", 5): # 增加了更多成功标志
+        if wait_for_patterns(r"busybox|root@|#\s*$", 5): 
             print("登录成功！")
             return True
 
-        print("超时：登录后未检测到成功标志。")
+        print("超时：串口登录后未检测到成功标志。")
         return False
 
     def send_cmd_quiet(self, command):
         if not (self.ser and self.ser.is_open):
-            if not self.open_serial():
+            if not self.serial_open():
                 return False
         full_command = command + '\n'
         with self.write_lock:
@@ -173,13 +171,13 @@ class SerialManager:
     def send_cmd(self, command):
         """线程安全地向串口发送命令，并记录到日志。"""
         if not (self.ser and self.ser.is_open):
-            if not self.open_serial():
+            if not self.serial_open():
                 return False
         full_command = command + '\n'
         with self.write_lock:
             self.ser.write(full_command.encode('utf-8'))
             timestamp = datetime.now()
-            log_entry_str = f"[{timestamp.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}] [send_cmd]: {command}"
+            log_entry_str = f"[{timestamp.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}] ===》 {command}"
             log_entry_tuple = (timestamp, log_entry_str)
             self.log_buffer.append(log_entry_tuple)
             self._write_to_log_file(log_entry_str)

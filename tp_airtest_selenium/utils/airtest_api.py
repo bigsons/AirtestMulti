@@ -88,3 +88,16 @@ def set_step_log(log_content):
     # 将用户提供的内容存入 'log' 键中
     print(log_content)
     G.LOGGER._extra_log_data['log'] = log_content
+
+def set_step_traceback(content):
+    """
+    为一个被 @logwrap 装饰的步骤，在它的 log 'data' 中添加一个 'traceback' 字段来自定义报告步骤执行失败
+    Args:
+        log_content: 任何可以被JSON序列化的内容 (e.g., dict, list, string)。
+    """
+    if not hasattr(G.LOGGER, "_extra_traceback_data"):
+        G.LOGGER._extra_traceback_data = {}
+    
+    # 将用户提供的内容存入 'traceback' 键中
+    print(content)
+    G.LOGGER._extra_traceback_data['traceback'] = content

@@ -1,6 +1,6 @@
 # -*- encoding=utf8 -*-
 __author__ = "Administrator"
-__brief__ = "这是一个简单的测试脚本内容"
+__brief__ = "这是一个简单的测试脚本内容这是一个简单的测试脚本内容这是一个简单的测试脚本内容这是一个简单的测试脚本内容这是一个简单的测试脚本内容"
 from airtest.core.api import *
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys

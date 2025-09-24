@@ -1,6 +1,6 @@
 # -*- encoding=utf8 -*-
 __author__ = "Administrator"
-__brief__ = "这是一个简单的测试脚本内容"
+__brief__ = "这是一个简单的测试脚本内容这是一个简单的测试脚本内容这是一个简单的测试脚本内容这是一个简单的测试脚本内容这是一个简单的测试脚本内容"
 from airtest.core.api import *
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
@@ -15,21 +15,27 @@ print(setting)
 driver.serial_send("aaaaa")
 driver.get("http://192.168.1.1")
 driver.serial_login(password="79d05758")
-# driver.serial_send("ifconfig") # 例如发送一个重启命令
-# vl = driver.serial_find("192.168.1.1")
-# logs = driver.serial_get(1000)
-# driver.assert_custom(vl,logs,driver.snapshot())
-# driver.serial_send("rebowot") # 例如发送一个重启命令
-# driver.serial_send("reboowt") # 例如发送一个重启命令
-# driver.serial_send("rebowot") # 例如发送一个重启命令
-# driver.serial_send("rewboot") # 例如发送一个重启命令
-# logs = driver.serial_get(duration=10)
-# log(logs,desc="串口日志")
+driver.serial_send("ifconfig") # 例如发送一个重启命令
+sleep(1)
+vl = driver.serial_find("192\.168\.1\.1")
+logs = driver.serial_get(50)
+driver.wifi_disconnect()
+ret = driver.wifi_connect("Redmi_9C67","1169302692")
+driver.assert_custom(ret,logs,driver.snapshot())
+driver.serial_send("rebowot") # 例如发送一个重启命令
+driver.serial_send("reboot") # 例如发送一个重启命令
+logs = driver.serial_get(duration=10)
+log(logs,desc="串口日志")
+log(driver.get_ip(),desc="无线ip")
+log(driver.get_ip("wired"),desc="无线ip")
+ret,info = driver.ping("192.168.1.1")
+driver.assert_custom(ret,info,True,"ping结果")
 driver.find_element_by_xpath("//input[@aria-required='true']").send_keys("admin123")
 driver.find_element_by_xpath("//*[@id=\"app\"]/div/div[2]/div[3]/main/div/button/div[2]/span").click()
 driver.find_element_by_xpath("//div[@data-cy='networkMapRouterBtn']").click()
 driver.full_snapshot()
 print("jiaobenzhixzhix111111111111111")
+
 # sleep(1)
 # # driver.get("http://192.168.1.1/webpages/index.html#/storageSharing")
 # sleep(1)

@@ -36,6 +36,12 @@ def patch_airtest_logwrap():
                 fndata.update(data)
                 raise
             else:
+                # ============================================================
+                # 检查"信箱" G.LOGGER._extra_traceback_data 自定义的识别log是否存在
+                if hasattr(G.LOGGER, "_extra_traceback_data"):
+                    fndata.update(G.LOGGER._extra_traceback_data)
+                    del G.LOGGER._extra_traceback_data
+                # ============================================================
                 fndata.update({'ret': res, "end_time": time.time()})
                 return res
             finally:
@@ -46,7 +52,7 @@ def patch_airtest_logwrap():
                         pass
                 
                 # ============================================================
-                # 修改: "信箱" G.LOGGER._extra_log_data 是否存在
+                # 检查"信箱" G.LOGGER._extra_log_data 是否存在
                 if hasattr(G.LOGGER, "_extra_log_data"):
                     fndata.update(G.LOGGER._extra_log_data)
                     del G.LOGGER._extra_log_data
